@@ -84,6 +84,24 @@
   .ent.big{color:var(--text);}
   .ent.ai{color:#e6d9b8;background:#1c1a12;border:1px solid var(--brass-soft);border-radius:9px;padding:9px 12px;margin:7px 0;font-style:italic;}
 
+  /* --- family tree overlay --- */
+  #ftOverlay{position:fixed;inset:0;z-index:40;background:rgba(11,17,13,.88);display:flex;align-items:center;justify-content:center;padding:28px;}
+  #ftOverlay[hidden]{display:none;}
+  #ftPanel{background:var(--panel);border:1px solid var(--line);border-radius:12px;max-width:760px;width:100%;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;}
+  #ftPanel>header{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--line);}
+  #ftPanel>header h3{font-family:var(--disp);font-size:18px;margin:0;}
+  #ftClose{cursor:pointer;}
+  #ftBody{overflow-y:auto;padding:14px 18px 20px;}
+  .ftfam{border:1px solid var(--line);border-radius:10px;background:var(--panel2);padding:10px 14px;margin:0 0 12px;}
+  .ftfamh{font-family:var(--disp);font-weight:700;font-size:14px;color:var(--brass);margin-bottom:6px;}
+  .ftnode{padding:2px 0;}
+  .ftname{font-size:13px;color:var(--text);}
+  .ftname .ftdates{font-family:var(--mono);font-size:10px;color:var(--faint);margin-left:6px;}
+  .ftlove{color:var(--rose);font-size:12px;}
+  .ftalive{color:var(--meadow);font-size:9px;vertical-align:middle;}
+  .ftgone{color:var(--faint);}
+  .ftkids{margin:2px 0 2px 10px;border-left:1px dashed var(--line);padding-left:12px;}
+
   ::-webkit-scrollbar{width:9px;}
   ::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px;}
   ::-webkit-scrollbar-track{background:transparent;}
@@ -105,6 +123,7 @@
     <span id="speedbox">
       <button data-s="0" title="pause">&#10073;&#10073;</button><button data-s="1" class="on">1&times;</button><button data-s="4">4&times;</button><button data-s="12">12&times;</button>
     </span>
+    <button class="pill" id="ftBtn" title="the town's family tree">&#127794; lineage</button>
   </header>
   <main id="lay">
     <div id="viewwrap">
@@ -120,6 +139,12 @@
       </div>
     </aside>
   </main>
+  <div id="ftOverlay" hidden>
+    <div id="ftPanel">
+      <header><h3>Lineage of Emberhollow</h3><button id="ftClose" class="pill">close &#10005;</button></header>
+      <div id="ftBody"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -224,8 +249,173 @@ const CHAT_LINES={
   weather:["the weather","clouds rolling in","last night's wind"], town:["town gossip","the new cottage","the old days"]
 };
 
+/* ============================== villager brains ============================== */
+/* BRAIN SCHEMA (single source of truth — read by the sim AND personaPrompt):
+   a.brain = {
+     arch:     string           key into ARCHES (archetype)
+     backstory:string           one finished sentence; founders get hill-crossing seeds,
+                                children get "Born in Emberhollow to <p1> and <p2> — <tail>"
+                                (parent NAMES are baked in at birth, so they survive death)
+     voice:    [string,string]  hard HOW-they-talk rules; personaPrompt makes them mandatory
+     values:   [string,string]  keys into VALUE_LINES; drive chat topics + endChat affinity
+     fear:     string           noun phrase; private — interviews only, never the inspector
+     quirk:    string           verb phrase; hinted in inspector, named when chats sour
+     secret:   string           "you …" clause, no trailing period; interviews only, deflected
+     sig:      string           short signature say-bubble phrase, this villager's own
+   }
+   ARCHES[k] = { name, essence, w (trait weights, centered on 0.5), values (pool of 4),
+     voice (pool of 3), fseeds (2 founder backstories), bseeds (2 born-here tails),
+     fears (3), quirks (3), secrets (3), sigs (3), wt (2 wander thoughts),
+     st (1 rough-sleep thought), grates ([arch keys whose manner rubs this one wrong]) } */
+const VALUE_LINES={
+  kindness:["nobody eats alone","small mercies"], hearth:["come in, sit down","soup's on"],
+  quiet:["listen…","the river's enough"], loyalty:["stand by yours","I don't forget mine"],
+  craft:["work worth doing","true and square"], order:["a place for all","mend it today"],
+  truth:["say it plain","no varnish"], freedom:["no fences on me","the open road"],
+  wonder:["what's past the ridge?","imagine, though"], courage:["over the hill anyway","fear's a poor mayor"],
+  memory:["the old names","so it's not forgotten"], beauty:["worth stopping for","look at that light"],
+};
+Object.assign(CHAT_LINES, VALUE_LINES); // value-topics speak through the existing chat code
+const ARCHES={
+  tender:{ name:"the Tender", essence:"keeps every green and growing thing — plants, children, moods — alive through the hard weeks",
+    w:{nature:.8,social:.4}, values:["kindness","hearth","quiet","loyalty"],
+    voice:["ask after the other person before answering anything about yourself","soften hard words with 'love' or 'dear'","measure time in seasons and plantings, not days"],
+    fseeds:["Came over the hill with the first six, a seed-pouch sewn into a coat hem and no plan past 'plant it'.","Came over the hill with the first six; was the one who knelt, tasted the dirt by the river bend, and said stay."],
+    bseeds:["whose first word was the name of a flower, and it stuck.","the baby every neighbour carried once around the plaza for luck."],
+    fears:["a frost coming in the night while everyone sleeps","being needed by someone and arriving too late","that kindness runs out the way a well can"],
+    quirks:["talks to seedlings in a low voice, and swears they answer","cannot pass a wilting plant without stopping to water it, whoever owns it","saves the first berry of every bush and buries it, 'for the ground's share'"],
+    secrets:["you once let a neighbour's sick rosebush die because you were tired of being the one who saves things","you took more than your share of food in the hungriest week and have out-given it ever since","you keep a dried flower from a grave you have never told anyone you visit"],
+    sigs:["eaten today, dear?","there, there","green things know"],
+    wt:["making the rounds of every growing thing","walking slow so the small things can catch up"],
+    st:"sleeping out with the seedlings, where I'm wanted", grates:[] },
+  maker:{ name:"the Maker", essence:"happiest mid-task; believes a town is only care made solid — beams, bread, benches",
+    w:{industry:.9,tidy:.4}, values:["craft","order","truth","hearth"],
+    voice:["never waste a word — short sentences, no flourish","judge everything by how it's made, and say so","describe things by weight, grain and join, not by looks"],
+    fseeds:["Came over the hill with the first six carrying nothing but good tools, which was everything.","Came over the hill with the first six and had the bridge rails mended before anyone had named the town."],
+    bseeds:["who could stack a true woodpile before learning to spell.","who teethed on a whittling scrap and has smelled of sawdust ever since."],
+    fears:["idle hands — a whole day with nothing to fix","building something that fails someone who trusted it","the tools going dull and the eye going with them"],
+    quirks:["runs a thumb along every doorframe walked through, checking the join","cannot watch a task done badly without quietly taking over","counts hammer-strokes under the breath, always in eights"],
+    secrets:["one wall of your own cottage is out of true and you would rather die than let anyone measure it","you broke a founder's tool long ago, mended it in secret, and never said","you sign your best work underneath, where no one will ever look"],
+    sigs:["measure twice","good grain, that","it'll hold"],
+    wt:["walking the lanes looking for something that needs mending","checking the bridge rails, same as every week"],
+    st:"sleeping rough — a bed is just a project I haven't finished", grates:["wanderer"] },
+  wanderer:{ name:"the Wanderer", essence:"belongs to the paths more than the plots; keeps leaving and, so far, keeps coming back",
+    w:{openness:.7,nature:.5,tidy:-.4}, values:["freedom","wonder","quiet","courage"],
+    voice:["name where you've just been or where you're headed before anything else","speak in loose, unhurried sentences that trail off when the thought walks on","measure the world in distances and landmarks, not opinions"],
+    fseeds:["Came over the hill with the first six and was over the next hill by supper — but came back. Keeps coming back.","Came over the hill with the first six; it was the sixth town over that hill, and the first one worth stopping for."],
+    bseeds:["who learned to walk early and has treated it as a calling ever since.","forever found at the bridge, watching the water leave town."],
+    fears:["a door that only locks from the outside","the day when coming back stops feeling like arriving","maps — that someone will finish one, and end the mystery"],
+    quirks:["keeps a pebble from everywhere worth remembering; pockets always full","never sits with a back to the door","greets the river like an old colleague at every crossing"],
+    secrets:["you've stood at the town's edge at night, pack on your shoulder, and turned back — more than once","you found something strange beyond the grove and told no one, to keep one place secret","the wandering isn't toward anything; you're not lost, you're looking, and you can't say for what"],
+    sigs:["past the ridge…","the road knows","back by dark"],
+    wt:["walking until the town runs out, then a little further","following whatever the wind is doing today"],
+    st:"sleeping under the sky, the only roof that fits", grates:["steady"] },
+  keeper:{ name:"the Keeper of Stories", essence:"holds the town's memory — names, feuds, kindnesses — so nothing true gets lost",
+    w:{openness:.6,social:.5,artistry:.25}, values:["memory","truth","loyalty","wonder"],
+    voice:["begin, whenever you can, with 'that reminds me' — and let it","refer to past days by what happened in them, never by number","attach a small history to every name you mention"],
+    fseeds:["Came over the hill with the first six and has been narrating ever since — ask about the first night's rain.","Came over the hill with the first six; five walked, and one remembered every step."],
+    bseeds:["who demanded the founding story every night until it wore a groove.","who knows every grave by the story under it, and tends them with gossip."],
+    fears:["that a name will be forgotten while you're the one holding it","dying mid-story, the true ending going with you","being remembered wrong yourself"],
+    quirks:["repeats new facts twice, quietly, to file them away","collects other people's endings — always asks 'and then?'","tells the graves the day's news on evening walks"],
+    secrets:["one founding story you tell is wrong, you know it's wrong, and it's better than what happened","you know who really let the first winter's fire go out, and have kept it kindly","you can't remember your own mother's voice, and it's why you hoard everyone else's"],
+    sigs:["that reminds me…","and then?","as it was told to me"],
+    wt:["walking the lanes, collecting the day's small news","reciting the town's names so none go missing"],
+    st:"sleeping in the open, like the first night — that's a story too", grates:[] },
+  dreamer:{ name:"the Dreamer", essence:"lives half a step outside the world, in the version of it worth painting",
+    w:{artistry:.9,openness:.3}, values:["beauty","wonder","freedom","quiet"],
+    voice:["name the light or the colour of a thing before anything practical about it","answer questions a little sideways, through images","drift mid-sentence when something beautiful crosses your mind"],
+    fseeds:["Came over the hill with the first six because of how the valley looked at that exact hour, and stayed to see all the others.","Came over the hill with the first six with paint on both coat cuffs and no explanation offered."],
+    bseeds:["who stared at the ceiling beams so long the parents painted clouds on them.","who, as a baby, cried only when sunsets ended."],
+    fears:["going grey inside — a day when nothing looks like anything","finishing the one perfect work and having nothing left after","that everyone sees this much and simply doesn't mention it"],
+    quirks:["frames views with both hands mid-conversation, without noticing","hoards the stubs of colours — nothing that ever held paint gets thrown out","gives the clouds names, and holds small grudges against some"],
+    secrets:["your best painting stays face-to-wall; it's of someone who doesn't know","you can't see whatever it is people praise in your work; you're chasing something else entirely","some mornings you wake certain you dreamed this town into being, and check the bridge first thing"],
+    sigs:["look at that light","almost… almost","the sky's showing off"],
+    wt:["out looking for the day's one perfect picture","following the light to wherever it's going"],
+    st:"sleeping outside on purpose — the stars are the good ceiling", grates:[] },
+  steady:{ name:"the Steady Hand", essence:"the town's quiet ballast — feeds the fire, mends the fence, keeps every promise made",
+    w:{tidy:.8,industry:.4,openness:-.3}, values:["order","hearth","loyalty","craft"],
+    voice:["state things plainly and once; repetition is for bells","note what needs doing before what would be nice","end conversations when they're done — kindly, but firmly"],
+    fseeds:["Came over the hill with the first six and had a rota for the fire drawn up by nightfall. It held.","Came over the hill with the first six; panicked exactly once, finished panicking, and got the tents up."],
+    bseeds:["who folded the family's blankets unasked at age two, corners square.","who kept the woodpile stacked through the parents' most chaotic years."],
+    fears:["the one night the fire goes out on your watch","change arriving faster than it can be tidied into place","being thanked — it means the work showed"],
+    quirks:["straightens whatever's crooked in any room entered — other people's rooms included","keeps a mental ledger of favours owed and paid, to the loaf","does everything important on the same day of the week, and always has"],
+    secrets:["under your floorboard is a small hoard of provisions for a disaster you can't name","you loved someone once who chose a less orderly life, and you still keep their gate-latch oiled","the calm is a performance; you rehearse each day twice before opening the door"],
+    sigs:["mend it today","that's settled","corners square"],
+    wt:["doing the rounds — gate, woodpile, bridge, well","walking the fence line, straightening as I go"],
+    st:"sleeping where I dropped; it goes in the ledger against tomorrow", grates:["wanderer","ember"] },
+  listener:{ name:"the Listener", essence:"says little, hears everything; the town's stillest and best-informed soul",
+    w:{social:-.6,openness:.4,nature:.4}, values:["quiet","kindness","truth","memory"],
+    voice:["never speak first, and never at length — one short sentence is plenty","leave silences and let the other person fill them","when you do speak, be startlingly exact"],
+    fseeds:["Came over the hill with the first six and said eleven words the whole first winter. All eleven mattered.","Came over the hill with the first six; nobody remembers inviting them, and nobody can imagine the town without."],
+    bseeds:["the quietest baby the town ever had — watchful as an owl from day one.","who could name every bird by its call before saying a single human word."],
+    fears:["being made to speak in front of the gathered town","that the hearing will go, and take the world with it","someone finally asking what you think of them, and meaning it"],
+    quirks:["knows everyone's footsteps and greets people without turning around","goes still as a heron when thinking — mid-lane, mid-task, anywhere","feeds crumbs to the same crow each morning; they have an understanding"],
+    secrets:["half the town has confessed something to you unprompted; you carry it all and have never told one","you have a beautiful singing voice that no living person has heard","you once heard two villagers plan a kindness for you, and pretended surprise so well it hurt"],
+    sigs:["mm.","listen…","the crow agrees"],
+    wt:["going where the town is quietest","out listening to what the wind's carrying"],
+    st:"sleeping outside; the night talks and I'd rather hear it", grates:["ember"] },
+  ember:{ name:"the Ember", essence:"the spark at every gathering — loud, warm, first to laugh, last to leave",
+    w:{social:.8,artistry:.35}, values:["courage","beauty","loyalty","hearth"],
+    voice:["greet everyone by name, warmly, as if they'd been gone a year","turn things into a toast, a dare, or a joke — sometimes all three","never let a silence live longer than three heartbeats"],
+    fseeds:["Came over the hill with the first six, singing, which is how the other five knew where the hill was.","Came over the hill with the first six and declared it home so loudly the birds relocated."],
+    bseeds:["who laughed before crying — the parents swear it — and never reordered those priorities.","passed around every plaza gathering like a warm loaf."],
+    fears:["an evening when no one comes","that the warmth is the only thing anyone wants you for","real quiet — the kind with your own thoughts in it"],
+    quirks:["applauds small things sincerely — good soup, a bold cloud, a well-stacked woodpile","gives everyone nicknames and forgets which ones are secret","pokes every fire encountered; cannot not"],
+    secrets:["after every gathering you sit alone at the cold plaza well until your ears stop ringing","you practice being funny on the far paths, testing lines on the trees","there is one villager whose laugh you'd trade all the rest for, and you perform for them alone"],
+    sigs:["ha! exactly!","to Emberhollow!","dare you"],
+    wt:["off to find where the laughing is","making a lap of the plaza so the day knows I'm in it"],
+    st:"camping out loud under the stars — an adventure, obviously", grates:["listener"] },
+};
+function pickArchetype(t){
+  let best="tender", bs=-1e9;
+  for(const k in ARCHES){
+    let s=rnd()*0.35;
+    const w=ARCHES[k].w;
+    for(const tr in w) s+=w[tr]*((t[tr]??0.5)-0.5);
+    if(s>bs){ bs=s; best=k; }
+  }
+  return best;
+}
+function makeBrain(a){
+  const arch=pickArchetype(a.traits), A=ARCHES[arch];
+  let backstory;
+  if(!a.parents || a.parents.length===0){
+    backstory=pick(A.fseeds);
+  } else {
+    const p1=byId(a.parents[0])?.name || "a villager now resting under a stone";
+    const p2=byId(a.parents[1])?.name || "a villager now resting under a stone";
+    backstory=`Born in Emberhollow to ${p1} and ${p2} — ${pick(A.bseeds)}`;
+  }
+  const vp=[...A.values], values=[];
+  while(values.length<2 && vp.length) values.push(vp.splice(ri(vp.length),1)[0]);
+  const vo=[...A.voice], voice=[];
+  while(voice.length<2 && vo.length) voice.push(vo.splice(ri(vo.length),1)[0]);
+  return { arch, backstory, voice, values, fear:pick(A.fears), quirk:pick(A.quirks), secret:pick(A.secrets), sig:pick(A.sigs) };
+}
+/* inheritance: one value from each parent; sometimes a parent's fear/quirk,
+   sometimes mutated to a related one (re-rolled inside that parent's archetype pool).
+   Null-safe: skips any parent (or parent brain) that is missing. */
+function inheritBrain(kid, pa, pb){
+  const B=kid.brain; if(!B) return;
+  const vs=[];
+  for(const p of [pa,pb]) if(p && p.brain && p.brain.values.length) vs.push(pick(p.brain.values));
+  const merged=[...new Set(vs)];
+  let guard=0;
+  while(merged.length<2 && guard++<20){ const v=pick(ARCHES[B.arch].values); if(!merged.includes(v)) merged.push(v); }
+  B.values=merged.slice(0,2);
+  const donor = rnd()<.5 ? pa : pb, other = donor===pa ? pb : pa;
+  const src = (donor && donor.brain) ? donor : (other && other.brain) ? other : null;
+  if(src){
+    if(rnd()<.45) B.fear  = rnd()<.35 ? pick(ARCHES[src.brain.arch].fears)  : src.brain.fear;
+    if(rnd()<.35) B.quirk = rnd()<.35 ? pick(ARCHES[src.brain.arch].quirks) : src.brain.quirk;
+  }
+}
+
 /* ============================== agents ============================== */
 const agents=[], houses=[], graves=[];
+// persistent lineage registry — survives agent death; feeds the family-tree view.
+// entries: {id, name, parents:[id,id], partner:<name|null>, born:<day>, died:<day|null>}
+const lineage=[];
 let nextId=1, nextHouse=1;
 
 function makeTraits(){ return {social:rnd(),industry:.3+rnd()*.7,artistry:rnd(),nature:rnd(),openness:rnd(),tidy:rnd()}; }
@@ -248,7 +438,11 @@ function makeAgent(opts={}){
     memories:[], say:null, inside:false, alive:true,
     chatTurns:[], thought:"taking in the morning air",
   };
-  agents.push(a); return a;
+  a.brain = makeBrain(a);   // [brain] one mind, read by the sim AND the interviews
+  agents.push(a);
+  lineage.push({id:a.id, name:a.name, parents:(a.parents||[]).slice(), partner:null, born:a.birthDay, died:null});
+  if(lineage.length>400) lineage.splice(0, lineage.length-400);
+  return a;
 }
 const byId = id => agents.find(a=>a.id===id) || null;
 const ageOf = a => day() - a.birthDay;
@@ -358,8 +552,91 @@ function furnish(h){
   if(rnd()<.4) put("cat","a cat asleep in a sunbeam");
   return items;
 }
-const houseAt=(x,y)=> houses.find(h=> x>=h.x && x<h.x+3 && y>=h.y && y<h.y+3);
+const houseAt=(x,y)=> houses.find(h=> x>=h.x && x<h.x+(h.w||3) && y>=h.y && y<h.y+3);
 const homeOf = a => houses.find(h=>h.id===a.home) || null;
+
+/* ============================== communal buildings, jobs, festivals ============================== */
+const tavernHouse =()=> houses.find(h=>h.kind==="tavern" && h.stage==="done") || null;
+const marketHouse =()=> houses.find(h=>h.kind==="market" && h.stage==="done") || null;
+const communalSite=()=> houses.find(h=>h.kind && h.stage==="building") || null;
+const marketOpen  =()=> { const t=tod(); return t>=0.24 && t<=0.50; };  // morning through midday
+const tavernTime  =()=> { const t=tod(); return t>=0.60 && t<=0.86; };  // evening
+
+const JOBS={
+  gardening:{job:"flower-seller",ware:"posies"},        painting:{job:"painter",ware:"small paintings"},
+  fishing:{job:"angler",ware:"river fish"},             stargazing:{job:"chartwright",ware:"star charts"},
+  baking:{job:"baker",ware:"honey cakes"},              reading:{job:"bookbinder",ware:"mended books"},
+  music:{job:"busker",ware:"songs"},                    whittling:{job:"carver",ware:"wooden toys"},
+  foraging:{job:"forager",ware:"wild mushrooms"},       birdwatching:{job:"feather-trader",ware:"feather charms"},
+};
+const jobOf = a => JOBS[a.likes[0]] || {job:"trader",ware:"odds and ends"};
+
+const FESTS=["the Harvest Fair","River Lantern Night","Founders' Day"];
+let festState={day:0, name:null};
+const festActive=()=> festState.day===day() && tod()>=0.50 && tod()<=0.86;
+
+// 4x3 footprint variant of regionFree (checks a one-tile apron too)
+function regionFree4(bx,by){
+  for(let y=by;y<by+4;y++) for(let x=bx-1;x<bx+5;x++){
+    if(!inb(x,y)) return false;
+    if(ground[K(x,y)]!==G_GRASS || solid[K(x,y)]) return false;
+  }
+  return true;
+}
+const TAVERN_NAMES=["The Ember Cup","The Salmon's Rest","The Gilded Fox","The Riverlight"];
+function startCommunal(kind){
+  let best=null, bd=1e9;
+  for(let i=0;i<400;i++){
+    const bx=18+ri(28), by=8+ri(28);
+    if(!regionFree4(bx,by)) continue;
+    if(bx>22 && bx<37 && by>12 && by<26) continue;        // footprint must not touch the plaza
+    const d=dist(bx+2,by+1.5, 31.5,21.5);
+    if(d<bd){ bd=d; best=[bx,by]; }
+  }
+  if(!best) return null;
+  const [bx,by]=best;
+  const b={ id:nextHouse++, kind, x:bx, y:by, w:4, owners:[], stage:"building", progress:0,
+            woodNeed:16, woodHave:0, style:null, interior:null,
+            doorX:bx+1, doorY:by+2,
+            name: kind==="tavern" ? pick(TAVERN_NAMES) : "the market hall" };
+  for(let y=by;y<by+3;y++) for(let x=bx;x<bx+4;x++) solid[K(x,y)]=1;
+  solid[K(b.doorX,b.doorY)]=0;
+  houses.push(b);
+  chron(kind==="tavern"
+    ? `The town broke ground on a tavern near the plaza — ${b.name}. No owner, no foreman: every able hand is welcome on the timber.`
+    : `Groundbreaking! Emberhollow is raising a market hall by the plaza — a stall for every trade.`, true);
+  toast(kind==="tavern" ? `⚒ The town is building a tavern — ${b.name}` : "⚒ The town is building a market hall");
+  return b;
+}
+function finishCommunal(b){
+  b.stage="done";
+  chron(b.kind==="tavern"
+    ? `${b.name} opened its doors tonight — built by the whole town, owned by the whole town. Evenings will never be quiet again.`
+    : `The market hall is finished. From tomorrow morning: bread, fish and small wonders, all for barter and gossip.`, true);
+  toast(b.kind==="tavern" ? `✦ ${b.name} is open!` : "✦ The market is open!");
+}
+
+// Rendering fallback — the design-director's `function drawSpecialBuilding(b,night)`
+// hoists onto window before this runs and therefore wins; this only fills the gap.
+if(!window.drawSpecialBuilding){
+  window.drawSpecialBuilding=function(b,night){
+    const px=b.x*TILE, py=b.y*TILE, wpx=TILE*4;
+    if(b.stage==="building"){
+      ctx.fillStyle="rgba(90,74,48,.55)"; ctx.fillRect(px,py+6,wpx,TILE*3-6);
+      ctx.strokeStyle="#8a734a"; ctx.lineWidth=2; ctx.strokeRect(px+2,py+8,wpx-4,TILE*3-10);
+      const ph=Math.round((TILE*3-10)*b.progress);
+      ctx.fillStyle="#7d5e39"; ctx.fillRect(px+2, py+TILE*3-2-ph, wpx-4, ph);
+      ctx.fillStyle="#8a6a3a";
+      for(let i=0;i<Math.min(b.woodHave,12);i++) ctx.fillRect(px-6, py+TILE*3-4-i*3, 5,2);
+      return;
+    }
+    ctx.fillStyle=b.kind==="tavern"?"#6b4f2e":"#8d8578"; ctx.fillRect(px+1,py+8,wpx-2,TILE*3-8);
+    ctx.fillStyle=b.kind==="tavern"?"#4a3520":"#6e6a60";
+    ctx.beginPath(); ctx.moveTo(px-2,py+10); ctx.lineTo(px+wpx/2,py-8); ctx.lineTo(px+wpx+2,py+10); ctx.closePath(); ctx.fill();
+    ctx.fillStyle="#3a2f24"; ctx.fillRect(b.doorX*TILE+3, py+TILE*2, 10, TILE-2);
+    if(night>0){ ctx.fillStyle="#f0c060"; ctx.fillRect(px+5,py+14,5,5); ctx.fillRect(px+wpx-10,py+14,5,5); }
+  };
+}
 
 /* ============================== chronicle ============================== */
 const chronEntries=[];
@@ -411,10 +688,12 @@ function chooseTask(a){
   // sleep
   if((isNight()&&n.energy<.75) || n.energy<.18){
     if(h && h.stage==="done"){ a.thought=`heading home to sleep`; return goto(a,h.doorX,h.doorY,{type:"sleep",home:true}); }
-    a.thought="dozing under the open sky"; a.task={type:"sleep",home:false,t:0}; return true;
+    a.thought=(a.brain&&rnd()<.4)?ARCHES[a.brain.arch].st:"dozing under the open sky"; a.task={type:"sleep",home:false,t:0}; return true; // [brain]
   }
-  // eat
+  // eat — the market first while it's open, berries otherwise
   if(n.food<.4){
+    const m=marketHouse();
+    if(m && marketOpen()){ a.thought="off to the market for something warm"; return goto(a, m.x+ri(4), m.y+3, {type:"buy", t:0}); }
     const b=nearestBush(a);
     if(b){ a.thought="off to pick berries"; return goto(a,b.x,b.y,{type:"forage",bush:b}); }
   }
@@ -428,6 +707,33 @@ function chooseTask(a){
   }
   if(!h && isAdult(a) && agents.length===agents.filter(x=>x.alive).length){
     if(startHouse(a)) return chooseTask(a);
+  }
+  // communal effort — any industrious adult pitches in on the tavern/market site
+  const cb=communalSite();
+  if(cb && isAdult(a) && a.traits.industry>.45 && rnd()<.6){
+    if(a.carrying>0){ a.thought=`hauling timber to the ${cb.kind} site`; return goto(a,cb.doorX,cb.doorY,{type:"deliverComm",b:cb.id}); }
+    if(cb.woodHave < cb.woodNeed){
+      const t=nearestTree(a);
+      if(t){ a.thought=`cutting timber for the town ${cb.kind}`; return goto(a,t.x,t.y,{type:"chop",tree:t}); }
+    } else { a.thought=`raising beams at the ${cb.kind}`; return goto(a,cb.doorX,cb.doorY,{type:"constructComm",b:cb.id}); }
+  }
+  // festival afternoon & evening: the plaza calls
+  if(festActive() && rnd()<.8){
+    a.thought=`joining ${festState.name} on the plaza`;
+    return goto(a, 29+ri(6), 19+ri(6), {type:"festival", t:0});
+  }
+  // morning market: sellers set out their wares
+  const m=marketHouse();
+  if(m && marketOpen() && isAdult(a) && rnd()<.35){
+    const j=jobOf(a);
+    a.thought=`setting out ${j.ware} at the market`;
+    return goto(a, m.x+ri(4), m.y+3, {type:"sell", t:0, ware:j.ware, job:j.job});
+  }
+  // evenings at the tavern
+  const tv=tavernHouse();
+  if(tv && tavernTime() && !festActive() && isAdult(a) && (a.traits.social>.4 || n.social<.6) && rnd()<.7){
+    a.thought=`heading to ${tv.name} for the evening`;
+    return goto(a, tv.x+ri(4), tv.y+3, {type:"tavern", t:0});
   }
   // socialise
   if(n.social<.55 && a.traits.social>rnd()*0.7){
@@ -457,13 +763,22 @@ function chooseTask(a){
     return goto(a,tx,ty,{type:"hobby",like, t:0});
   }
   // wander / visit a friend's porch
-  a.thought = pick(["taking a slow walk","following the worn path","seeing what the day brings","humming to no one"]);
+  // [brain] wander thoughts take archetype colour about half the time
+  a.thought = (a.brain && rnd()<.5) ? pick(ARCHES[a.brain.arch].wt)
+    : pick(["taking a slow walk","following the worn path","seeing what the day brings","humming to no one"]);
   return goto(a, 2+ri(W-4), 2+ri(H-4), {type:"idle"});
 }
 
 function startChat(a,b){
-  const topicPool=[...a.likes.filter(l=>b.likes.includes(l))];
-  const topic = topicPool.length&&rnd()<.7 ? pick(topicPool) : pick([...a.likes,...b.likes,"weather","town"]);
+  const sharedLikes=[...a.likes.filter(l=>b.likes.includes(l))];
+  // [brain] what people hold dear is also what they talk about
+  const sharedVals=(a.brain&&b.brain)?a.brain.values.filter(v=>b.brain.values.includes(v)):[];
+  const r=rnd();
+  let topic;
+  if(sharedLikes.length && r<.55) topic=pick(sharedLikes);
+  else if(sharedVals.length && r<.75) topic=pick(sharedVals);
+  else if(a.brain && r<.85) topic=pick(a.brain.values);
+  else topic=pick([...a.likes,...b.likes,"weather","town"]);
   const dur = 5+rnd()*4;
   a.task={type:"chat",locked:true,with:b.id,t:dur,topic}; a.path=null;
   b.task={type:"chat",locked:true,with:a.id,t:dur,topic}; b.path=null;
@@ -478,7 +793,20 @@ function endChat(a){
   a.task=null;
   if(!b) return;
   const c = compat(a,b);
-  const delta = c + (rnd()-.35);
+  let delta = c + (rnd()-.35);
+  if(festActive()) delta += 0.6;                       // festival cheer papers over small frictions
+  // [brain] shared values warm a talk; a grating manner (and its quirk) can sour one
+  if(a.brain && b.brain){
+    const sv=a.brain.values.filter(v=>b.brain.values.includes(v));
+    if(sv.length){
+      delta+=.5;
+      if(rnd()<.1) chron(`${a.name} and ${b.name} found they both hold ${sv[0]} dear, and the talk ran long.`);
+    }
+    if((ARCHES[a.brain.arch].grates||[]).includes(b.brain.arch) && rnd()<.3){
+      delta-=.7;
+      if(rnd()<.5) chron(`${b.name}'s habit — ${b.brain.quirk} — wore on ${a.name} today.`);
+    }
+  }
   const ra=rel(a,b.id), rb=rel(b,a.id);
   ra.aff=clamp(ra.aff+delta,-3,14); rb.aff=clamp(rb.aff+delta,-3,14);
   ra.chats++; rb.chats++;
@@ -488,14 +816,17 @@ function endChat(a){
     remember(a,`${b.name} and I became real friends.`); remember(b,`${a.name} and I became real friends.`);
   }
   if(delta<-.5 && rnd()<.4){ say(a,"hmph."); chron(`${a.name} and ${b.name} talked past each other about ${topic} and parted a little colder.`); }
-  // romance
+  // romance — festival evenings loosen hearts
+  const loveChance = (festActive() && tod()>0.6) ? .6 : .35;
   if(!a.partner && !b.partner && isAdult(a)&&isAdult(b)&&!isElder(a)&&!isElder(b)
-     && ra.aff>7 && rb.aff>7 && c>0.4 && rnd()<.35 && !a.parents.includes(b.id) && !b.parents.includes(a.id)){
+     && ra.aff>7 && rb.aff>7 && c>0.4 && rnd()<loveChance && !a.parents.includes(b.id) && !b.parents.includes(a.id)){
     a.partner=b.id; b.partner=a.id;
     say(a,"❤"); say(b,"❤");
     chron(`Under the ${isNight()?"stars":"open sky"}, ${a.name} and ${b.name} chose each other. Emberhollow has a new pair.`, true);
     remember(a,`${b.name} and I promised ourselves to each other.`);
     remember(b,`${a.name} and I promised ourselves to each other.`);
+    const la=lineage.find(l=>l.id===a.id); if(la) la.partner=b.name;
+    const lb=lineage.find(l=>l.id===b.id); if(lb) lb.partner=a.name;
     mergeHomes(a,b);
   }
 }
@@ -523,8 +854,8 @@ function updateAgent(a, dt){
   const n=a.needs;
   n.energy=clamp(n.energy - dt*0.008, 0, 1);
   n.food  =clamp(n.food   - dt*0.010, 0, 1);
-  n.social=clamp(n.social - dt*0.007*(0.4+a.traits.social), 0, 1);
-  n.joy   =clamp(n.joy    - dt*0.006, 0, 1);
+  n.social=clamp(n.social - dt*0.0075*(0.4+a.traits.social), 0, 1);
+  n.joy   =clamp(n.joy    - dt*0.0065, 0, 1);
   if(a.say && simTime>a.say.until) a.say=null;
 
   if(!a.task){ chooseTask(a); return; }
@@ -553,7 +884,7 @@ function updateAgent(a, dt){
     }
     case "chat": {
       t.t-=dt;
-      if(rnd()<dt*0.5) say(a, pick(CHAT_LINES[t.topic]||CHAT_LINES.town));
+      if(rnd()<dt*0.5) say(a, (a.brain&&rnd()<.22)?a.brain.sig:pick(CHAT_LINES[t.topic]||CHAT_LINES.town)); // [brain] signature phrase
       if(t.t<=0) endChat(a);
       break;
     }
@@ -621,6 +952,84 @@ function updateAgent(a, dt){
       }
       break;
     }
+    case "buy": {
+      t.t+=dt;
+      if(t.t>2.2){
+        const sellers=agents.filter(o=>o!==a && o.alive && o.task && o.task.type==="sell");
+        const s=sellers.length?pick(sellers):null;
+        n.food=clamp(n.food+(s?0.6:0.35),0,1);
+        if(s){
+          n.joy=clamp(n.joy+.08,0,1);
+          s.needs.joy=clamp(s.needs.joy+.1,0,1);
+          say(s, pick(["for you!","fresh this morning!","take two!"]),2.4);
+          say(a,"mm!",2);
+          if(rnd()<.1) chron(`${s.name} the ${s.task.job} traded ${s.task.ware} to ${a.name} for a song and a favour owed.`);
+        }
+        a.task=null;
+      }
+      break;
+    }
+    case "sell": {
+      t.t+=dt;
+      n.joy=clamp(n.joy+dt*0.03,0,1);
+      n.social=clamp(n.social+dt*0.02,0,1);
+      if(rnd()<dt*0.18) say(a, pick([`fresh ${t.ware}!`,"come look!","best in town!"]),2.6);
+      if(t.t>10+rnd()*6 || !marketOpen()){
+        a.task=null;
+        if(rnd()<.12) chron(`${a.name} sold every last ${t.ware} before noon.`);
+      }
+      break;
+    }
+    case "tavern": {
+      t.t+=dt;
+      n.social=clamp(n.social+dt*0.045,0,1);
+      n.joy=clamp(n.joy+dt*0.035,0,1);
+      n.food=clamp(n.food+dt*0.012,0,1);                 // stew and bread by the fire
+      if(rnd()<dt*0.22) say(a, pick(["♫","cheers!","another round!","ha!"]),2.4);
+      if(rnd()<dt*0.35){
+        const o=agents.find(o=>o!==a && o.alive && o.task && o.task.type==="tavern" && !o.task.locked && dist(a.x,a.y,o.x,o.y)<3);
+        if(o){
+          const ra=rel(a,o.id), rb=rel(o,a.id);
+          if(ra.aff<-1 && rb.aff<-1 && rnd()<.5){
+            ra.aff=0.8; rb.aff=0.8;
+            say(a,"cheers!"); say(o,"cheers!");
+            chron(`Over a shared jug at ${tavernHouse()?.name||"the tavern"}, ${a.name} and ${o.name} buried the hatchet.`, true);
+            remember(a,`${o.name} and I made peace at the tavern.`);
+            remember(o,`${a.name} and I made peace at the tavern.`);
+          }
+          startChat(a,o);
+          break;
+        }
+      }
+      if(t.t>12+rnd()*8 || tod()>0.86) a.task=null;
+      break;
+    }
+    case "festival": {
+      t.t+=dt;
+      n.joy=clamp(n.joy+dt*0.05,0,1);
+      n.social=clamp(n.social+dt*0.03,0,1);
+      if(rnd()<dt*0.2) say(a, pick(["✦","♪","to Emberhollow!","what a night!"]),2.6);
+      if(rnd()<dt*0.5){
+        const o=agents.find(o=>o!==a && o.alive && o.task && o.task.type==="festival" && !o.task.locked && dist(a.x,a.y,o.x,o.y)<3);
+        if(o){ startChat(a,o); break; }
+      }
+      if(!festActive() || t.t>15+rnd()*10) a.task=null;
+      break;
+    }
+    case "deliverComm": {
+      const b=houses.find(x=>x.id===t.b);
+      if(!b || b.stage!=="building"){ a.task=null; a.carrying=0; break; }
+      b.woodHave+=a.carrying; a.carrying=0; a.task=null;
+      break;
+    }
+    case "constructComm": {
+      const b=houses.find(x=>x.id===t.b);
+      if(!b || b.stage!=="building"){ a.task=null; break; }
+      t.t=(t.t||0)+dt;
+      b.progress=clamp(b.progress + dt*0.045*(0.5+a.traits.industry), 0, 1);
+      if(b.progress>=1){ finishCommunal(b); a.task=null; }
+      break;
+    }
     case "idle": a.task=null; break;
     default: a.task=null;
   }
@@ -632,9 +1041,18 @@ function slowPulse(){
   // regrow
   for(const t of trees) if(!t.alive && simTime>t.regrow){ if(walkable(t.x,t.y)){ t.alive=true; solid[K(t.x,t.y)]=1; } }
   for(const b of bushes) if(!b.berries && simTime>b.regrow) b.berries=true;
-  // children
+  // town milestones: communal buildings rise from headcount alone
   const living = agents.filter(a=>a.alive);
-  if(living.length<26){
+  if(living.length>=9  && !houses.some(h=>h.kind==="tavern")) startCommunal("tavern");
+  if(living.length>=14 && !houses.some(h=>h.kind==="market")) startCommunal("market");
+  // every 10th day is a festival, announced at midday
+  if(day()%10===0 && day()>=10 && festState.day!==day() && tod()>=0.45){
+    festState={day:day(), name:FESTS[Math.floor(day()/10)%FESTS.length]};
+    chron(`Today is ${festState.name}! From midday the plaza fills with music, food and old stories.`, true);
+    toast(`✦ ${festState.name} — the plaza calls`);
+  }
+  // children
+  if(living.length<30){
     for(const a of living){
       if(!a.partner || a.id>a.partner) continue;
       const b=byId(a.partner); if(!b||!b.alive) continue;
@@ -647,10 +1065,12 @@ function slowPulse(){
           x:h.doorX+0.5, y:h.doorY+1.5,
           parents:[a.id,b.id], birthDay:day(),
         });
+        inheritBrain(kid, a, b); // [brain] a value from each parent; sometimes a fear or quirk, sometimes mutated
         kid.home=h.id;
         if(!h.owners.includes(kid.id)) h.owners.push(kid.id);
         chron(`A child is born to ${a.name} and ${b.name} — welcome, little ${kid.name}.`, true);
         remember(a,`our child ${kid.name} was born.`); remember(b,`our child ${kid.name} was born.`);
+        remember(kid,`I was born, under ${a.name} and ${b.name}'s roof.`);
         toast(`☀ A child is born — welcome, ${kid.name}`);
       }
     }
@@ -659,6 +1079,7 @@ function slowPulse(){
   for(const a of living){
     if(ageOf(a)>a.lifespan && rnd()<0.25){
       a.alive=false;
+      const le=lineage.find(l=>l.id===a.id); if(le) le.died=day();
       const h=homeOf(a);
       let gx=Math.floor(a.x), gy=Math.floor(a.y);
       if(h){ gx=h.x; gy=h.y+3; }
@@ -743,7 +1164,7 @@ function draw(){
   const sprites=[];
   for(const t of trees) sprites.push({y:t.y+0.9, f:()=>drawTree(t)});
   for(const b of bushes) sprites.push({y:b.y+0.6, f:()=>drawBush(b)});
-  for(const hh of houses) sprites.push({y:hh.y+2.9, f:()=>drawHouse(hh,night)});
+  for(const hh of houses) sprites.push({y:hh.y+2.9, f:()=> hh.kind ? drawSpecialBuilding(hh,night) : drawHouse(hh,night)});
   for(const a of agents) if(!a.inside) sprites.push({y:a.y, f:()=>drawAgent(a)});
   sprites.sort((p,q)=>p.y-q.y);
   for(const sp of sprites) sp.f();
@@ -923,9 +1344,10 @@ function renderInspector(){
         <div>
           <h2>${esc(a.name)}</h2>
           <p class="sub">${stageOf(a)} · ${ageOf(a)} days old</p>
-          <div class="chips">${topTraits(a).map(t=>`<span class="chip warm">${t}</span>`).join("")}${a.likes.map(l=>`<span class="chip">${LIKE_ICON[l]||""} ${l}</span>`).join("")}</div>
+          <div class="chips">${a.brain?`<span class="chip warm">✦ ${esc(ARCHES[a.brain.arch].name)}</span>`:""}${topTraits(a).map(t=>`<span class="chip warm">${t}</span>`).join("")}${a.likes.map(l=>`<span class="chip">${LIKE_ICON[l]||""} ${l}</span>`).join("")}</div>
         </div>
       </div>
+      ${a.brain?`<p class="kv" style="margin:6px 0 0">${esc(a.brain.backstory)}</p><p class="kv" style="font-style:italic;color:var(--faint);margin:2px 0 0">the neighbours have noticed: ${esc(a.brain.quirk.split(" ").slice(0,3).join(" "))}…</p>`:""}
       <p class="thought" id="thought"></p>
       <div class="bars" id="needbars"></div>
       <p class="kv">home: <b>${h ? (h.stage==="done"?"a finished cottage "+describeSpot(h.x,h.y):"a cottage under construction ("+Math.round(h.progress*100)+"%)") : "none yet — sleeping under the stars"}</b></p>
@@ -941,6 +1363,23 @@ function renderInspector(){
     renderChatLog(a);
     wireAsk(a);
     refreshLive();
+  } else if(sel.kind==="house" && sel.h.kind){
+    const b=sel.h;
+    const cx=b.x+(b.w||4)/2, cy=b.y+1.5;
+    const here=agents.filter(o=>o.alive && !o.inside && dist(o.x,o.y,cx,cy)<4.5);
+    const title = b.kind==="tavern" ? b.name : "The Market Hall";
+    const subtitle = b.kind==="tavern" ? "the town tavern — built by everyone, owned by everyone"
+                                       : "the town market — morning stalls, barter and gossip";
+    el.innerHTML=`
+      <h2>${esc(title)}</h2>
+      <p class="sub">${b.stage==="done" ? subtitle : "under construction — "+Math.round(b.progress*100)+"% ("+b.woodHave+"/"+b.woodNeed+" timber) · a communal effort"} · ${describeSpot(b.x,b.y)}</p>
+      <div class="secl">${b.stage==="done" ? (b.kind==="tavern"?"At the bar just now":"At the stalls just now") : "On the build crew"}</div>
+      <div class="kv">${here.length ? here.map(o=>{
+          const doing = o.task ? ({tavern:"raising a mug",sell:"selling "+(o.task.ware||"wares"),buy:"browsing the stalls",
+            deliverComm:"delivering timber",constructComm:"raising beams",chat:"deep in conversation",festival:"celebrating"})[o.task.type]||"passing through" : "passing through";
+          return `<b>${esc(o.name)}</b> — ${doing}`;
+        }).join("<br>") : (b.stage==="done" ? "empty just now — try "+(b.kind==="tavern"?"the evening":"the morning") : "waiting for hands and timber")}</div>
+      ${b.kind==="tavern"&&b.stage==="done" ? '<p class="kv" style="margin-top:8px">Evenings here mend quarrels — rivals who share a jug often walk out friends.</p>' : ""}`;
   } else {
     const h=sel.h;
     const names=h.owners.map(id=>byId(id)?.name).filter(Boolean).join(" & ")||"an empty";
@@ -1003,6 +1442,46 @@ function refreshLive(){
 }
 setInterval(refreshLive, 900);
 
+/* ============================== family tree ============================== */
+function ftNode(l){
+  const status = byId(l.id) ? '<span class="ftalive">●</span>' : '<span class="ftgone">✝</span>';
+  const partner = l.partner ? ` <span class="ftlove">❤ ${esc(l.partner)}</span>` : "";
+  const dates = l.died!=null ? `b. day ${l.born} — d. day ${l.died}` : `b. day ${l.born}`;
+  return `<div class="ftname">${status} <b>${esc(l.name)}</b>${partner} <span class="ftdates">${dates}</span></div>`;
+}
+function ftBranch(l, depth, seen){
+  if(depth>8 || seen.has(l.id)) return "";
+  seen.add(l.id);
+  // children render under parents[0] (always the lower-id parent, per the birth loop);
+  // fall back to parents[1] only when parents[0] has been trimmed from the registry.
+  const kids=lineage.filter(c=> c.parents.length &&
+    (c.parents[0]===l.id || (c.parents[1]===l.id && !lineage.some(p=>p.id===c.parents[0]))));
+  let html=ftNode(l);
+  if(kids.length) html+=`<div class="ftkids">${kids.map(k=>ftBranch(k,depth+1,seen)).join("")}</div>`;
+  return `<div class="ftnode">${html}</div>`;
+}
+function openFamilyTree(){
+  const ov=document.getElementById('ftOverlay'), body=document.getElementById('ftBody');
+  if(!ov||!body) return;
+  const seen=new Set();
+  let html="";
+  for(const r of lineage){
+    if(r.parents.length || seen.has(r.id)) continue;      // founding roots only
+    html+=`<div class="ftfam"><div class="ftfamh">House of ${esc(r.name)}</div>${ftBranch(r,0,seen)}</div>`;
+  }
+  const stray=lineage.filter(l=>!seen.has(l.id));
+  if(stray.length) html+=`<div class="ftfam"><div class="ftfamh">Of families now passed</div>${stray.map(l=>ftBranch(l,0,seen)).join("")}</div>`;
+  body.innerHTML=html || '<div class="empty">No lineage recorded yet.</div>';
+  ov.hidden=false;
+}
+(function(){
+  const b=document.getElementById('ftBtn'), ov=document.getElementById('ftOverlay'), x=document.getElementById('ftClose');
+  if(b) b.addEventListener('click', openFamilyTree);
+  if(x) x.addEventListener('click', ()=>{ if(ov) ov.hidden=true; });
+  if(ov) ov.addEventListener('click', e=>{ if(e.target===ov) ov.hidden=true; });
+  document.addEventListener('keydown', e=>{ if(e.key==="Escape"&&ov&&!ov.hidden) ov.hidden=true; });
+})();
+
 /* ============================== Claude minds (sample) ============================== */
 let sampleFn=null, sampleGone=false;
 (async ()=>{
@@ -1027,13 +1506,19 @@ function sampleErr(code){
   return ERRCOPY[code]||"Something went sideways — try again.";
 }
 function personaPrompt(a){
-  const friends=[...a.rel.entries()].map(([id,r])=>({o:byId(id),r})).filter(x=>x.o&&x.r.aff>1.5).map(x=>x.o.name);
+  const B=a.brain, A=B?ARCHES[B.arch]:null;
+  const rels=[...a.rel.entries()].map(([id,r])=>({o:byId(id),r})).filter(x=>x.o);
+  const friends=rels.filter(x=>x.r.aff>1.5).sort((p,q)=>q.r.aff-p.r.aff).slice(0,4).map(x=>x.o.name);
+  const rival=rels.find(x=>x.r.aff<-1);
   const h=homeOf(a);
-  return `You are roleplaying ${a.name}, a villager in Emberhollow, a small self-running town beside a river. Stay in character; first person; warm, a little rustic; 1–3 short sentences per reply; never mention being an AI or a simulation.
-About you — a ${stageOf(a)}, ${ageOf(a)} days old; ${topTraits(a).join(" and ")}; you love ${a.likes.join(", ")}.
+  return `You are roleplaying ${a.name}, a villager in Emberhollow, a small self-running town beside a river. Stay in character; first person; 1–3 short sentences per reply; never mention being an AI or a simulation.
+${A?`You are ${A.name} of this town — ${A.essence}.`:""} ${B?`Your story: ${B.backstory}`:""}
+How you speak — obey these strictly: ${B?B.voice.join("; "):"warm, a little rustic"}.
+You are a ${stageOf(a)}, ${ageOf(a)} days old; ${topTraits(a).join(" and ")}; you love ${a.likes.join(", ")}.${B?` You hold dear: ${B.values.join(" and ")}. A private fear (only mention if it truly fits): ${B.fear}. A habit of yours: ${B.quirk}.`:""}
+${B?`You have a secret: ${B.secret} — you NEVER volunteer it; deflect gently unless this person has clearly earned deep trust across the conversation.`:""}
 Home: ${h ? (h.stage==="done"?"your finished cottage "+describeSpot(h.x,h.y):"a half-built cottage you're still raising") : "none yet; you sleep under the stars"}.
-${a.partner?("Your partner is "+(byId(a.partner)?.name||"gone")+". "):""}${friends.length?("Friends: "+friends.slice(0,4).join(", ")+". "):""}
-Recent memories: ${a.memories.slice(-5).join(" | ")||"the founding of the town"}.
+${a.partner?`Your partner is ${byId(a.partner)?.name||"gone now"}. `:""}${friends.length?`Friends: ${friends.join(", ")}. `:""}${rival?`You and ${rival.o.name} rub each other the wrong way. `:""}
+Your real memories from this life: ${a.memories.slice(-5).join(" | ")||"the founding of the town"}.
 Right now you are ${a.inside?"asleep at home (answer drowsily)":a.thought}. It is ${todName()} on day ${day()}.`;
 }
 function renderChatLog(a){
@@ -1113,7 +1598,7 @@ function frame(now){
     uiAt=now+500;
     document.getElementById('clock').innerHTML=`Day ${day()} &middot; ${todName()}`;
     document.getElementById('pop').textContent=agents.length;
-    document.getElementById('hcount').textContent=houses.filter(h=>h.stage==="done").length;
+    const hc=document.getElementById('hcount'); if(hc) hc.textContent=houses.filter(h=>h.stage==="done"&&!h.kind).length;
   }
   draw();
   requestAnimationFrame(frame);
