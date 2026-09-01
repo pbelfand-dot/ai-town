@@ -1,0 +1,1123 @@
+<title>Emberhollow</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#0f1512; --panel:#171f1a; --panel2:#1e2a22; --line:#2b3a2f;
+    --text:#e9e2cf; --muted:#96a591; --faint:#6d7d6c;
+    --brass:#d8a24a; --brass-soft:#8a6a34;
+    --meadow:#84b06a; --rose:#dd8f9f; --sky:#8fb5c9;
+    --disp:"Fraunces","Georgia",serif;
+    --body:"Atkinson Hyperlegible","Segoe UI",system-ui,sans-serif;
+    --mono:"IBM Plex Mono","Menlo",monospace;
+  }
+  html,body{height:100%;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--body);font-size:14px;overflow:hidden;}
+  *{box-sizing:border-box;}
+  button{font-family:var(--body);cursor:pointer;}
+  button:focus-visible,input:focus-visible{outline:2px solid var(--brass);outline-offset:1px;}
+
+  #app{display:flex;flex-direction:column;height:100vh;height:100dvh;}
+  header#top{display:flex;align-items:center;gap:14px;padding:8px 16px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap;}
+  #townname{font-family:var(--disp);font-weight:700;font-size:22px;letter-spacing:.3px;color:var(--text);}
+  #townname em{font-style:italic;color:var(--brass);}
+  #tagline{color:var(--muted);font-size:12px;margin-right:auto;}
+  .pill{font-family:var(--mono);font-size:12px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:4px 12px;white-space:nowrap;font-variant-numeric:tabular-nums;}
+  .pill b{color:var(--brass);font-weight:500;}
+  #speedbox{display:flex;gap:4px;}
+  #speedbox button{background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:7px;padding:4px 10px;font-family:var(--mono);font-size:12px;}
+  #speedbox button.on{background:var(--brass);border-color:var(--brass);color:#1a1408;font-weight:500;}
+
+  main#lay{display:flex;flex:1;min-height:0;}
+  #viewwrap{position:relative;flex:1;min-width:0;background:#0b110d;}
+  canvas#view{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;}
+  canvas#view.drag{cursor:grabbing;}
+  #hint{position:absolute;left:12px;bottom:10px;font-family:var(--mono);font-size:11px;color:#cfd8c6;background:rgba(15,21,18,.75);border:1px solid var(--line);border-radius:7px;padding:5px 10px;pointer-events:none;}
+  #toast{position:absolute;left:50%;top:14px;transform:translateX(-50%);font-size:13px;color:var(--text);background:rgba(23,31,26,.94);border:1px solid var(--brass-soft);border-radius:9px;padding:7px 14px;pointer-events:none;opacity:0;transition:opacity .4s;max-width:70%;text-align:center;}
+  #toast.show{opacity:1;}
+
+  aside#side{width:372px;flex:none;display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--panel);min-height:0;}
+  #inspector{flex:none;max-height:56%;overflow-y:auto;padding:14px 16px;border-bottom:1px solid var(--line);}
+  #inspector h2{font-family:var(--disp);font-weight:700;font-size:19px;margin:0 0 2px;}
+  #inspector .sub{color:var(--muted);font-size:12px;margin:0 0 10px;}
+  .empty{color:var(--faint);font-size:13px;line-height:1.6;padding:6px 0;}
+  .row{display:flex;gap:12px;align-items:flex-start;}
+  .portrait{width:60px;height:60px;flex:none;border-radius:9px;border:1px solid var(--line);background:var(--panel2);image-rendering:pixelated;}
+  .bars{display:flex;flex-direction:column;gap:5px;margin:10px 0 4px;}
+  .bar{display:grid;grid-template-columns:74px 1fr;align-items:center;gap:8px;font-size:11px;color:var(--muted);}
+  .bar .tr{height:7px;border-radius:4px;background:var(--panel2);border:1px solid var(--line);overflow:hidden;}
+  .bar .fl{height:100%;border-radius:4px;background:var(--meadow);transition:width .5s;}
+  .bar.love .fl{background:var(--rose);}
+  .bar.gold .fl{background:var(--brass);}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0;}
+  .chip{font-size:11px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:2px 9px;}
+  .chip.warm{border-color:var(--brass-soft);color:var(--brass);}
+  .kv{font-size:12px;color:var(--muted);line-height:1.7;}
+  .kv b{color:var(--text);font-weight:400;}
+  .thought{font-size:13px;font-style:italic;color:var(--sky);margin:8px 0 4px;line-height:1.5;}
+  .rels{margin:8px 0 0;font-size:12px;}
+  .rels div{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--line);color:var(--muted);}
+  .rels div span:first-child{color:var(--text);}
+  canvas.interior{width:100%;border-radius:9px;border:1px solid var(--line);background:var(--panel2);image-rendering:pixelated;margin:8px 0;}
+  .secl{font-family:var(--mono);font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--faint);margin:14px 0 6px;}
+
+  #askbox{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;}
+  #chatlog{display:flex;flex-direction:column;gap:6px;margin-bottom:8px;max-height:180px;overflow-y:auto;}
+  .msg{font-size:12.5px;line-height:1.5;padding:6px 10px;border-radius:9px;max-width:92%;}
+  .msg.you{align-self:flex-end;background:var(--panel2);border:1px solid var(--line);color:var(--text);}
+  .msg.them{align-self:flex-start;background:#241f14;border:1px solid var(--brass-soft);color:#f0e6cf;}
+  .msg.err{align-self:center;color:var(--faint);font-style:italic;background:none;}
+  #askrow{display:flex;gap:6px;}
+  #askrow input{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:7px 10px;font-family:var(--body);font-size:13px;}
+  #askrow input::placeholder{color:var(--faint);}
+  #askrow button{background:var(--brass);border:none;border-radius:8px;color:#1a1408;font-weight:700;padding:7px 13px;font-size:13px;}
+  #askrow button:disabled{opacity:.45;cursor:default;}
+  .ainote{font-size:11.5px;color:var(--faint);line-height:1.5;margin-top:6px;}
+
+  #chronwrap{flex:1;min-height:0;display:flex;flex-direction:column;}
+  #chronwrap>header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px 8px;}
+  #chronwrap>header h3{font-family:var(--disp);font-size:15px;font-weight:700;margin:0;}
+  #aiSum{background:var(--panel2);border:1px solid var(--brass-soft);color:var(--brass);border-radius:7px;padding:4px 10px;font-size:11.5px;}
+  #aiSum:disabled{opacity:.4;cursor:default;}
+  #log{flex:1;overflow-y:auto;padding:0 16px 16px;}
+  .ent{font-size:12.5px;line-height:1.55;color:var(--muted);padding:5px 0;border-bottom:1px solid #1d2620;}
+  .ent .d{font-family:var(--mono);font-size:10px;color:var(--brass);margin-right:7px;}
+  .ent.big{color:var(--text);}
+  .ent.ai{color:#e6d9b8;background:#1c1a12;border:1px solid var(--brass-soft);border-radius:9px;padding:9px 12px;margin:7px 0;font-style:italic;}
+
+  ::-webkit-scrollbar{width:9px;}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+
+  @media (max-width:860px){
+    main#lay{flex-direction:column;}
+    aside#side{width:100%;height:46%;border-left:none;border-top:1px solid var(--line);}
+    #inspector{max-height:60%;}
+  }
+</style>
+
+<div id="app">
+  <header id="top">
+    <span id="townname"><em>Emberhollow</em></span>
+    <span id="tagline">a town that runs itself &mdash; every villager decides, builds &amp; belongs on its own</span>
+    <span class="pill" id="clock">Day 1 &middot; morning</span>
+    <span class="pill">souls <b id="pop">0</b></span>
+    <span class="pill">cottages <b id="hcount">0</b></span>
+    <span id="speedbox">
+      <button data-s="0" title="pause">&#10073;&#10073;</button><button data-s="1" class="on">1&times;</button><button data-s="4">4&times;</button><button data-s="12">12&times;</button>
+    </span>
+  </header>
+  <main id="lay">
+    <div id="viewwrap">
+      <canvas id="view"></canvas>
+      <div id="hint">drag to pan &middot; scroll to zoom &middot; click a villager or cottage</div>
+      <div id="toast"></div>
+    </div>
+    <aside id="side">
+      <div id="inspector"><div class="empty">Click a villager to read their mind, or a finished cottage to step inside.<br><br>Everything here &mdash; where they build, whom they befriend, how they furnish their homes &mdash; is decided by the villagers themselves.</div></div>
+      <div id="chronwrap">
+        <header><h3>Town Chronicle</h3><button id="aiSum" hidden>&#10022; Claude, tell today&rsquo;s story</button></header>
+        <div id="log"></div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script>
+'use strict';
+/* ============================== utilities ============================== */
+let _seed = 987612345;
+function rnd(){ _seed|=0; _seed = _seed + 0x6D2B79F5 | 0; let t = Math.imul(_seed ^ _seed>>>15, 1|_seed); t = t + Math.imul(t ^ t>>>7, 61|t) ^ t; return ((t ^ t>>>14)>>>0)/4294967296; }
+const ri = n => Math.floor(rnd()*n);
+const pick = a => a[ri(a.length)];
+const clamp = (v,a,b)=> v<a?a : v>b?b : v;
+const lerp = (a,b,t)=> a+(b-a)*t;
+const dist = (ax,ay,bx,by)=> Math.hypot(ax-bx, ay-by);
+function hsl(h,s,l){ return `hsl(${Math.round(h)} ${Math.round(s)}% ${Math.round(l)}%)`; }
+function esc(s){ const d=document.createElement('span'); d.textContent=s; return d.innerHTML; }
+
+/* ============================== world ============================== */
+const W = 64, H = 44, TILE = 16;
+const DAY = 75;                 // real seconds per in-town day at 1x
+const G_GRASS=0, G_WATER=1, G_BRIDGE=2, G_GRAVE=3;
+const ground = new Uint8Array(W*H);
+const solid  = new Uint8Array(W*H);   // 1 = cannot walk
+const wear   = new Uint16Array(W*H);  // footpath wear
+const K = (x,y)=> y*W+x;
+const inb = (x,y)=> x>=0 && y>=0 && x<W && y<H;
+
+const trees = [], bushes = [];
+function genWorld(){
+  // river with a bridge
+  for(let y=0;y<H;y++){
+    const cx = Math.round(48 + Math.sin(y*0.21)*3.2);
+    for(let x=cx-1;x<=cx+1;x++) if(inb(x,y)){ ground[K(x,y)]=G_WATER; solid[K(x,y)]=1; }
+    if(y===19||y===20){ for(let x=cx-1;x<=cx+1;x++){ ground[K(x,y)]=G_BRIDGE; solid[K(x,y)]=0; } }
+  }
+  // groves
+  let placed=0, guard=0;
+  while(placed<150 && guard++<4000){
+    const x=ri(W), y=ri(H);
+    if(ground[K(x,y)]!==G_GRASS || solid[K(x,y)]) continue;
+    if(x>24&&x<38&&y>15&&y<27) continue;               // keep the plaza open
+    if(trees.some(t=>dist(t.x,t.y,x,y)<1.6)) continue;
+    trees.push({x,y,alive:true,regrow:0}); solid[K(x,y)]=1; placed++;
+  }
+  placed=0; guard=0;
+  while(placed<30 && guard++<3000){
+    const x=ri(W), y=ri(H);
+    if(ground[K(x,y)]!==G_GRASS || solid[K(x,y)]) continue;
+    if(bushes.some(b=>dist(b.x,b.y,x,y)<3)) continue;
+    bushes.push({x,y,berries:true,regrow:0}); placed++;
+  }
+}
+const walkable=(x,y)=> inb(x,y) && !solid[K(x,y)];
+
+function nearWalkable(x,y){
+  for(let r=1;r<7;r++) for(let dy=-r;dy<=r;dy++) for(let dx=-r;dx<=r;dx++){
+    if(Math.max(Math.abs(dx),Math.abs(dy))!==r) continue;
+    if(walkable(x+dx,y+dy)) return [x+dx,y+dy];
+  }
+  return null;
+}
+function astar(sx,sy,tx,ty){
+  sx|=0; sy|=0; tx|=0; ty|=0;
+  if(!walkable(tx,ty)){ const n=nearWalkable(tx,ty); if(!n) return null; [tx,ty]=n; }
+  if(!walkable(sx,sy)){ const n=nearWalkable(sx,sy); if(!n) return null; [sx,sy]=n; }
+  if(sx===tx&&sy===ty) return [];
+  const g=new Map(), came=new Map();
+  const h=(x,y)=>Math.abs(x-tx)+Math.abs(y-ty);
+  const open=[[sx,sy,h(sx,sy)]]; g.set(K(sx,sy),0);
+  let it=0;
+  while(open.length && it++<5000){
+    let bi=0; for(let i=1;i<open.length;i++) if(open[i][2]<open[bi][2]) bi=i;
+    const [cx,cy]=open.splice(bi,1)[0];
+    if(cx===tx&&cy===ty){
+      const path=[]; let k=K(tx,ty);
+      while(came.has(k)){ path.unshift([k%W,(k/W)|0]); k=came.get(k); }
+      return path;
+    }
+    const cg=g.get(K(cx,cy));
+    for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+      const nx=cx+dx, ny=cy+dy;
+      if(!walkable(nx,ny)) continue;
+      const nk=K(nx,ny), ng=cg+1;
+      if(g.has(nk)&&g.get(nk)<=ng) continue;
+      g.set(nk,ng); came.set(nk,K(cx,cy)); open.push([nx,ny,ng+h(nx,ny)]);
+    }
+  }
+  return null;
+}
+
+/* ============================== names & flavour ============================== */
+const NAMES=["Wren","Sable","Marlow","Fen","Ivy","Bram","Odette","Juniper","Hollis","Tamsin","Petra","Anselm","Ruta","Cassia","Dove","Alder","Merit","Sorrel","Linnea","Oren","Piper","Vesper","Colm","Isolde","Beck","Nell","Tobiah","Maren","Elowen","Foss","Greta","Idris","Lark","Moss","Nima","Orla","Quill","Rowan","Sylvie","Thorn","Una","Verity","Yew","Ada","Birch","Clover","Dorian","Effie","Gale","Haze"];
+const usedNames=new Set();
+function newName(){ let n=pick(NAMES),g=0; while(usedNames.has(n)&&g++<80) n=pick(NAMES); if(usedNames.has(n)) n=n+"·"+ri(99); usedNames.add(n); return n; }
+const LIKES=["gardening","painting","fishing","stargazing","baking","reading","music","whittling","foraging","birdwatching"];
+const LIKE_ICON={gardening:"❀",painting:"🖌",fishing:"⌣",stargazing:"✶",baking:"◍",reading:"❦",music:"♪",whittling:"᙮",foraging:"❧",birdwatching:"›"};
+const TRAITNAMES={social:"sociable",industry:"industrious",artistry:"artistic",nature:"wild-hearted",openness:"curious",tidy:"orderly"};
+const CHAT_LINES={
+  gardening:["seed talk","about roses","soil secrets"], painting:["about light","colour talk","a new sketch"],
+  fishing:["river tales","the big one","quiet waters"], stargazing:["the night sky","a comet?","old star-names"],
+  baking:["warm bread","a new recipe","honey cakes"], reading:["a good book","old legends","a sad ending"],
+  music:["a new tune","humming together","an old song"], whittling:["good grain","a tiny fox","sharp knives"],
+  foraging:["mushroom spots","sweet berries","hidden paths"], birdwatching:["a rare wren","dawn chorus","nest news"],
+  weather:["the weather","clouds rolling in","last night's wind"], town:["town gossip","the new cottage","the old days"]
+};
+
+/* ============================== agents ============================== */
+const agents=[], houses=[], graves=[];
+let nextId=1, nextHouse=1;
+
+function makeTraits(){ return {social:rnd(),industry:.3+rnd()*.7,artistry:rnd(),nature:rnd(),openness:rnd(),tidy:rnd()}; }
+function blendTraits(a,b){ const t={}; for(const k in a) t[k]=clamp((a[k]+b[k])/2 + (rnd()-.5)*.34, 0, 1); return t; }
+
+function makeAgent(opts={}){
+  const t = opts.traits || makeTraits();
+  const likes = opts.likes || (()=>{ const s=new Set(); while(s.size<2+ri(2)) s.add(pick(LIKES)); return [...s]; })();
+  const a = {
+    id: nextId++, name: opts.name || newName(),
+    traits:t, likes,
+    hue: opts.hue ?? ri(360),
+    skin: pick(["#e8c39a","#d9a877","#b98354","#8a5a36","#f0d3b0","#6e4327"]),
+    hair: pick(["#2c221b","#5a3a22","#8a6a3a","#c9a15a","#d8d3c8","#7a2e22","#3a3f4a"]),
+    needs:{energy:.7+rnd()*.3, food:.7+rnd()*.3, social:.5+rnd()*.5, joy:.5+rnd()*.5},
+    x: opts.x ?? 30+rnd()*4, y: opts.y ?? 19+rnd()*4,
+    path:null, task:null, home:null, carrying:0,
+    rel:new Map(), partner:null, parents:opts.parents||[],
+    birthDay: opts.birthDay ?? 0, lifespan: 58+ri(30),
+    memories:[], say:null, inside:false, alive:true,
+    chatTurns:[], thought:"taking in the morning air",
+  };
+  agents.push(a); return a;
+}
+const byId = id => agents.find(a=>a.id===id) || null;
+const ageOf = a => day() - a.birthDay;
+const isAdult = a => ageOf(a) >= 6;
+const isElder = a => ageOf(a) >= 46;
+const stageOf = a => !isAdult(a) ? "child" : isElder(a) ? "elder" : "adult";
+
+function rel(a,bid){ if(!a.rel.has(bid)) a.rel.set(bid,{aff:0,chats:0}); return a.rel.get(bid); }
+function compat(a,b){
+  let c = a.likes.filter(l=>b.likes.includes(l)).length*0.5;
+  c += 0.4 - Math.abs(a.traits.openness-b.traits.openness)*0.5;
+  c += 0.3 - Math.abs(a.traits.tidy-b.traits.tidy)*0.45;
+  return c; // roughly -0.4 .. +1.6
+}
+function remember(a,txt){ a.memories.push(`Day ${day()}: ${txt}`); if(a.memories.length>14) a.memories.shift(); }
+
+/* ============================== houses ============================== */
+// house: 3x3 footprint, door at (x+1, y+2); garden row beneath.
+function houseSpotScore(a,bx,by){
+  let s = 0;
+  for(const h of houses){
+    const d = dist(bx,by,h.x,h.y);
+    if(d<5) return -1e9;                                  // breathing room
+    const friendly = h.owners.some(id=>{ const r=a.rel.get(id); return r && r.aff>2; });
+    if(friendly) s += a.traits.social*14/Math.max(3,d);
+    else s -= (1-a.traits.social)*6/Math.max(3,d);
+  }
+  let waterD=99; for(let y=0;y<H;y+=2){ const cx=Math.round(48+Math.sin(y*0.21)*3.2); waterD=Math.min(waterD, dist(bx,by,cx,y)); }
+  if(a.likes.includes("fishing")) s += 8/Math.max(2,waterD);
+  let treeD=99; for(const t of trees) if(t.alive) treeD=Math.min(treeD,dist(bx,by,t.x,t.y));
+  s += a.traits.nature * 5/Math.max(1.5,treeD);
+  s -= dist(bx,by,31,21)*0.08;                            // mild pull toward the plaza
+  s += rnd()*1.5;
+  return s;
+}
+function regionFree(bx,by){
+  for(let y=by;y<by+4;y++) for(let x=bx-1;x<bx+4;x++){
+    if(!inb(x,y)) return false;
+    if(ground[K(x,y)]!==G_GRASS || solid[K(x,y)]) return false;
+  }
+  return true;
+}
+function chooseHouseSpot(a){
+  let best=null, bs=-1e8;
+  for(let i=0;i<220;i++){
+    const bx=2+ri(W-8), by=2+ri(H-8);
+    if(!regionFree(bx,by)) continue;
+    if(bx>25&&bx<37&&by>14&&by<26) continue;              // not on the plaza
+    const s=houseSpotScore(a,bx,by);
+    if(s>bs){ bs=s; best=[bx,by]; }
+  }
+  return best;
+}
+function houseStyleFor(a){
+  return {
+    wall: hsl(a.hue, 22+a.traits.tidy*18, 46+a.traits.openness*10),
+    wallDark: hsl(a.hue, 24, 34),
+    roof: hsl((a.hue+150+ri(60))%360, 38+a.traits.artistry*25, 38+a.traits.artistry*12),
+    roofShape: a.traits.artistry>.66 ? "round" : a.traits.tidy>.6 ? "gable" : "slant",
+    flowers: a.likes.includes("gardening") || a.traits.nature>.6,
+    banner: a.traits.artistry>.75,
+  };
+}
+function startHouse(a){
+  const spot = chooseHouseSpot(a);
+  if(!spot) return null;
+  const [bx,by]=spot;
+  const h = { id:nextHouse++, x:bx, y:by, owners:[a.id], stage:"building", progress:0,
+              woodNeed:10, woodHave:0, style:houseStyleFor(a), interior:null,
+              doorX:bx+1, doorY:by+2 };
+  for(let y=by;y<by+3;y++) for(let x=bx;x<bx+3;x++) solid[K(x,y)]=1;
+  solid[K(h.doorX,h.doorY)]=0;
+  houses.push(h);
+  a.home = h.id;
+  chron(`${a.name} staked out a plot ${describeSpot(bx,by)} and began building a cottage.`, true);
+  remember(a, "I chose the spot for my cottage and started building.");
+  return h;
+}
+function describeSpot(x,y){
+  const cx=Math.round(48+Math.sin(y*0.21)*3.2);
+  if(Math.abs(x-cx)<7) return "near the river";
+  let td=99; for(const t of trees) if(t.alive) td=Math.min(td,dist(x,y,t.x,t.y));
+  if(td<3) return "by the grove";
+  if(dist(x,y,31,21)<9) return "close to the plaza";
+  return "on the town's quiet edge";
+}
+function finishHouse(h){
+  h.stage="done";
+  h.interior = furnish(h);
+  const names = h.owners.map(id=>byId(id)?.name).filter(Boolean).join(" & ");
+  chron(`${names}'s cottage is finished — ${h.style.roofShape} roof, ${h.style.flowers?"flower beds out front":"a tidy yard"}. Step inside by clicking it.`, true);
+  h.owners.forEach(id=>{ const o=byId(id); if(o) remember(o,"my cottage was finished; it feels like me."); });
+}
+function furnish(h){
+  const owner = byId(h.owners[0]); if(!owner) return [];
+  const items=[], used=new Set();
+  const put=(type,label)=>{ let g=0; while(g++<40){ const x=ri(7),y=ri(4); const k=y*7+x; if(used.has(k)) continue; used.add(k); items.push({type,x,y,label}); return; } };
+  put("bed", h.owners.length>1 ? "a wide shared bed" : "a small warm bed");
+  put("table","a table for meals");
+  put("hearth","a stone hearth");
+  if(owner.traits.artistry>.5||owner.likes.includes("painting")) put("easel","an easel with a half-done canvas");
+  if(owner.likes.includes("reading")||owner.traits.openness>.6) put("books","a crooked bookshelf");
+  if(owner.traits.nature>.5||owner.likes.includes("gardening")) put("plant","potted ferns");
+  if(owner.likes.includes("music")) put("lute","a lute on the wall");
+  if(owner.likes.includes("baking")) put("oven","a bread oven, still warm");
+  if(owner.traits.tidy<.35) put("clutter","a friendly mess of belongings");
+  if(rnd()<.4) put("cat","a cat asleep in a sunbeam");
+  return items;
+}
+const houseAt=(x,y)=> houses.find(h=> x>=h.x && x<h.x+3 && y>=h.y && y<h.y+3);
+const homeOf = a => houses.find(h=>h.id===a.home) || null;
+
+/* ============================== chronicle ============================== */
+const chronEntries=[];
+function chron(txt, big=false){
+  chronEntries.push({day:day(), txt});
+  const log=document.getElementById('log');
+  const e=document.createElement('div');
+  e.className='ent'+(big?' big':'');
+  e.innerHTML=`<span class="d">D${day()}</span>${esc(txt)}`;
+  log.prepend(e);
+  while(log.children.length>140) log.lastChild.remove();
+}
+
+/* ============================== time ============================== */
+let simTime = DAY*0.28;         // begin mid-morning
+let speed=1;
+const day = ()=> Math.floor(simTime/DAY)+1;
+const tod = ()=> (simTime%DAY)/DAY;
+const isNight = ()=> tod()<0.20 || tod()>0.86;
+function todName(){ const t=tod(); return t<.20?"night":t<.33?"morning":t<.55?"midday":t<.72?"afternoon":t<.86?"evening":"night"; }
+
+/* ============================== behaviour ============================== */
+function say(a, txt, dur=3.2){ a.say={txt, until: simTime + dur}; }
+
+function goto(a, tx, ty, then){
+  const p = astar(Math.floor(a.x), Math.floor(a.y), tx, ty);
+  if(p===null){ a.task=null; return false; }
+  a.path=p; a.task={type:"goto", then}; return true;
+}
+function stepAlong(a, dt){
+  if(!a.path || !a.path.length) return true;
+  const [tx,ty]=a.path[0];
+  const gx=tx+0.5, gy=ty+0.5;
+  const d=dist(a.x,a.y,gx,gy);
+  const sp=(isAdult(a)?2.3:1.8)*dt;
+  if(d<=sp){
+    a.x=gx; a.y=gy; a.path.shift();
+    const k=K(tx,ty); if(wear[k]<2000) wear[k]+=3;
+    if(wear[k]===60||wear[k]===63) groundDirty=true;
+  } else { a.x+=(gx-a.x)/d*sp; a.y+=(gy-a.y)/d*sp; }
+  return a.path.length===0;
+}
+
+function nearestTree(a){ let b=null,bd=1e9; for(const t of trees){ if(!t.alive) continue; const d=dist(a.x,a.y,t.x,t.y); if(d<bd){bd=d;b=t;} } return b; }
+function nearestBush(a){ let b=null,bd=1e9; for(const t of bushes){ if(!t.berries) continue; const d=dist(a.x,a.y,t.x,t.y); if(d<bd){bd=d;b=t;} } return b; }
+
+function chooseTask(a){
+  const n=a.needs, h=homeOf(a);
+  // sleep
+  if((isNight()&&n.energy<.75) || n.energy<.18){
+    if(h && h.stage==="done"){ a.thought=`heading home to sleep`; return goto(a,h.doorX,h.doorY,{type:"sleep",home:true}); }
+    a.thought="dozing under the open sky"; a.task={type:"sleep",home:false,t:0}; return true;
+  }
+  // eat
+  if(n.food<.4){
+    const b=nearestBush(a);
+    if(b){ a.thought="off to pick berries"; return goto(a,b.x,b.y,{type:"forage",bush:b}); }
+  }
+  // house project
+  if(h && h.stage==="building"){
+    if(a.carrying>0){ a.thought="hauling timber to the build site"; return goto(a,h.doorX,h.doorY,{type:"deliver"}); }
+    if(h.woodHave < h.woodNeed){
+      const t=nearestTree(a);
+      if(t){ a.thought="out cutting timber for the cottage"; return goto(a,t.x,t.y,{type:"chop",tree:t}); }
+    } else { a.thought="raising the walls"; return goto(a,h.doorX,h.doorY,{type:"construct"}); }
+  }
+  if(!h && isAdult(a) && agents.length===agents.filter(x=>x.alive).length){
+    if(startHouse(a)) return chooseTask(a);
+  }
+  // socialise
+  if(n.social<.55 && a.traits.social>rnd()*0.7){
+    const others = agents.filter(o=>o!==a && o.alive && !o.inside && !o.task?.locked);
+    if(others.length){
+      const target = others.reduce((best,o)=>{
+        const r=a.rel.get(o.id); const score=(r?r.aff:0) + rnd()*3 - dist(a.x,a.y,o.x,o.y)*0.06;
+        return (!best||score>best.s)?{o,s:score}:best; },null).o;
+      a.thought=`going to find ${target.name}`;
+      return goto(a, Math.floor(target.x), Math.floor(target.y), {type:"seek", who:target.id});
+    }
+  }
+  // hobby
+  if(n.joy<.6){
+    const like = pick(a.likes);
+    a.thought = ({gardening:"tending the flower beds",painting:"painting what the light is doing",
+      fishing:"going fishing",stargazing:"finding a dark spot to watch the stars",baking:"baking something sweet",
+      reading:"curling up with a book",music:"playing a tune on the plaza",whittling:"whittling by the grove",
+      foraging:"wandering off foraging",birdwatching:"listening for birds"})[like];
+    let tx=31+ri(3)-1, ty=21+ri(3)-1;
+    if(like==="fishing"){ const y=ri(H); tx=Math.round(48+Math.sin(y*0.21)*3.2)-2; ty=y; }
+    else if(like==="gardening"&&h){ tx=h.x+ri(3); ty=h.y+3; }
+    else if((like==="baking"||like==="reading")&&h&&h.stage==="done"){ tx=h.doorX; ty=h.doorY; }
+    else if(like==="whittling"||like==="birdwatching"){ const t=nearestTree(a); if(t){tx=t.x;ty=t.y;} }
+    else if(like==="foraging"){ const b=nearestBush(a); if(b){tx=b.x;ty=b.y;} }
+    else if(like==="stargazing"){ tx=4+ri(W-8); ty=4+ri(H-8); }
+    return goto(a,tx,ty,{type:"hobby",like, t:0});
+  }
+  // wander / visit a friend's porch
+  a.thought = pick(["taking a slow walk","following the worn path","seeing what the day brings","humming to no one"]);
+  return goto(a, 2+ri(W-4), 2+ri(H-4), {type:"idle"});
+}
+
+function startChat(a,b){
+  const topicPool=[...a.likes.filter(l=>b.likes.includes(l))];
+  const topic = topicPool.length&&rnd()<.7 ? pick(topicPool) : pick([...a.likes,...b.likes,"weather","town"]);
+  const dur = 5+rnd()*4;
+  a.task={type:"chat",locked:true,with:b.id,t:dur,topic}; a.path=null;
+  b.task={type:"chat",locked:true,with:a.id,t:dur,topic}; b.path=null;
+  a.thought=`chatting with ${b.name} about ${topic}`;
+  b.thought=`chatting with ${a.name} about ${topic}`;
+  say(a, pick(CHAT_LINES[topic]||CHAT_LINES.town));
+  setTimeout(()=>{},0);
+}
+function endChat(a){
+  const b = byId(a.task.with);
+  const topic = a.task.topic;
+  a.task=null;
+  if(!b) return;
+  const c = compat(a,b);
+  const delta = c + (rnd()-.35);
+  const ra=rel(a,b.id), rb=rel(b,a.id);
+  ra.aff=clamp(ra.aff+delta,-3,14); rb.aff=clamp(rb.aff+delta,-3,14);
+  ra.chats++; rb.chats++;
+  a.needs.social=clamp(a.needs.social+.45,0,1); b.needs.social=clamp(b.needs.social+.45,0,1);
+  if(ra.chats===3 && ra.aff>1.5){
+    chron(`${a.name} and ${b.name} have become friends — they keep finding each other on the paths.`);
+    remember(a,`${b.name} and I became real friends.`); remember(b,`${a.name} and I became real friends.`);
+  }
+  if(delta<-.5 && rnd()<.4){ say(a,"hmph."); chron(`${a.name} and ${b.name} talked past each other about ${topic} and parted a little colder.`); }
+  // romance
+  if(!a.partner && !b.partner && isAdult(a)&&isAdult(b)&&!isElder(a)&&!isElder(b)
+     && ra.aff>7 && rb.aff>7 && c>0.4 && rnd()<.35 && !a.parents.includes(b.id) && !b.parents.includes(a.id)){
+    a.partner=b.id; b.partner=a.id;
+    say(a,"❤"); say(b,"❤");
+    chron(`Under the ${isNight()?"stars":"open sky"}, ${a.name} and ${b.name} chose each other. Emberhollow has a new pair.`, true);
+    remember(a,`${b.name} and I promised ourselves to each other.`);
+    remember(b,`${a.name} and I promised ourselves to each other.`);
+    mergeHomes(a,b);
+  }
+}
+function mergeHomes(a,b){
+  const ha=homeOf(a), hb=homeOf(b);
+  const keep = (ha&&ha.stage==="done")?ha : (hb&&hb.stage==="done")?hb : ha||hb;
+  if(!keep) return;
+  if(ha&&ha!==keep) removeHouseClaim(ha,a);
+  if(hb&&hb!==keep) removeHouseClaim(hb,b);
+  if(!keep.owners.includes(a.id)) keep.owners.push(a.id);
+  if(!keep.owners.includes(b.id)) keep.owners.push(b.id);
+  a.home=keep.id; b.home=keep.id;
+  if(keep.stage==="done") keep.interior=furnish(keep);
+  chron(`${a.name} and ${b.name} now share one roof.`);
+}
+function removeHouseClaim(h,a){
+  h.owners=h.owners.filter(id=>id!==a.id);
+  if(h.owners.length===0 && h.stage!=="done"){
+    for(let y=h.y;y<h.y+3;y++) for(let x=h.x;x<h.x+3;x++) solid[K(x,y)]=0;
+    houses.splice(houses.indexOf(h),1);
+  }
+}
+
+function updateAgent(a, dt){
+  const n=a.needs;
+  n.energy=clamp(n.energy - dt*0.008, 0, 1);
+  n.food  =clamp(n.food   - dt*0.010, 0, 1);
+  n.social=clamp(n.social - dt*0.007*(0.4+a.traits.social), 0, 1);
+  n.joy   =clamp(n.joy    - dt*0.006, 0, 1);
+  if(a.say && simTime>a.say.until) a.say=null;
+
+  if(!a.task){ chooseTask(a); return; }
+  const t=a.task;
+  switch(t.type){
+    case "goto": {
+      if(stepAlong(a,dt)){
+        const nx=t.then; a.task = nx ? {...nx} : null;
+        if(a.task&&a.task.type==="sleep") a.task.t=0;
+        if(a.task&&a.task.type==="hobby") a.task.t=0;
+        if(a.task&&(a.task.type==="chop"||a.task.type==="forage"||a.task.type==="construct"||a.task.type==="deliver")) a.task.t=0;
+      }
+      break;
+    }
+    case "seek": {
+      const b=byId(t.who);
+      if(!b||!b.alive||b.inside){ a.task=null; break; }
+      if(dist(a.x,a.y,b.x,b.y)<1.6){
+        if(!b.task || !b.task.locked){ startChat(a,b); }
+        else a.task=null;
+      } else if(stepAlong(a,dt)){
+        if(dist(a.x,a.y,b.x,b.y)<2.2 && (!b.task||!b.task.locked)) startChat(a,b);
+        else if(!goto(a,Math.floor(b.x),Math.floor(b.y),{type:"seek",who:b.id})) a.task=null;
+      }
+      break;
+    }
+    case "chat": {
+      t.t-=dt;
+      if(rnd()<dt*0.5) say(a, pick(CHAT_LINES[t.topic]||CHAT_LINES.town));
+      if(t.t<=0) endChat(a);
+      break;
+    }
+    case "chop": {
+      t.t+=dt;
+      if(!t.tree.alive){ a.task=null; break; }
+      if(t.t>2.6/(0.5+a.traits.industry)){
+        t.tree.alive=false; t.tree.regrow=simTime+DAY*(1.5+rnd());
+        solid[K(t.tree.x,t.tree.y)]=0;
+        a.carrying=Math.min(4,a.carrying+2);
+        a.task=null;
+      }
+      break;
+    }
+    case "deliver": {
+      const h=homeOf(a);
+      if(!h||h.stage!=="building"){ a.task=null; a.carrying=0; break; }
+      h.woodHave+=a.carrying; a.carrying=0; a.task=null;
+      break;
+    }
+    case "construct": {
+      const h=homeOf(a);
+      if(!h||h.stage!=="building"){ a.task=null; break; }
+      t.t+=dt;
+      h.progress=clamp(h.progress + dt*0.045*(0.5+a.traits.industry), 0, 1);
+      if(h.progress>=1) { finishHouse(h); a.task=null; }
+      break;
+    }
+    case "forage": {
+      t.t+=dt;
+      if(t.t>1.6){
+        if(t.bush.berries){ t.bush.berries=false; t.bush.regrow=simTime+DAY*0.8; }
+        n.food=clamp(n.food+.6,0,1);
+        a.task=null;
+      }
+      break;
+    }
+    case "sleep": {
+      if(t.home && !a.inside){ a.inside=true; }
+      n.energy=clamp(n.energy + dt*(t.home?0.05:0.028), 0, 1);
+      if(n.energy>0.97 && !isNight()){ a.inside=false; a.task=null; a.thought="up with the sun"; }
+      else if(n.energy>0.999){ a.inside=false; a.task=null; }
+      break;
+    }
+    case "hobby": {
+      t.t+=dt;
+      n.joy=clamp(n.joy + dt*0.06, 0, 1);
+      if(rnd()<dt*0.25) say(a, LIKE_ICON[t.like]||"~", 2);
+      if(t.like==="foraging") n.food=clamp(n.food+dt*0.03,0,1);
+      if(t.t>7+rnd()*5){
+        a.task=null;
+        if(rnd()<.16){
+          const line=({painting:`${a.name} finished a small painting of ${pick(["the river","the plaza well","a neighbour's roof","the evening light"])}.`,
+            music:`${a.name}'s tune drifted across the plaza; a few villagers hummed along.`,
+            fishing:`${a.name} pulled a fat silver fish from the river.`,
+            stargazing:`${a.name} swears a green star fell past the grove.`,
+            baking:`The smell of ${a.name}'s baking reached half the town.`,
+            gardening:`${a.name}'s flower beds are the brightest thing on the lane.`,
+            reading:`${a.name} finished a book and immediately started it again.`,
+            whittling:`${a.name} whittled a tiny wooden fox for a neighbour.`,
+            foraging:`${a.name} found a ring of mushrooms and left it undisturbed, just in case.`,
+            birdwatching:`${a.name} counted nine wrens before breakfast.`})[t.like];
+          if(line){ chron(line); remember(a, line.replace(a.name+" ","I ").replace(a.name+"'s","my")); }
+        }
+      }
+      break;
+    }
+    case "idle": a.task=null; break;
+    default: a.task=null;
+  }
+}
+
+/* slow pulse: babies, deaths, regrowth */
+let pulseAt=0;
+function slowPulse(){
+  // regrow
+  for(const t of trees) if(!t.alive && simTime>t.regrow){ if(walkable(t.x,t.y)){ t.alive=true; solid[K(t.x,t.y)]=1; } }
+  for(const b of bushes) if(!b.berries && simTime>b.regrow) b.berries=true;
+  // children
+  const living = agents.filter(a=>a.alive);
+  if(living.length<26){
+    for(const a of living){
+      if(!a.partner || a.id>a.partner) continue;
+      const b=byId(a.partner); if(!b||!b.alive) continue;
+      const h=homeOf(a);
+      if(h && h.stage==="done" && h.id===b.home && rnd()<0.05){
+        const kid = makeAgent({
+          traits:blendTraits(a.traits,b.traits),
+          likes:[...new Set([pick(a.likes),pick(b.likes),pick(LIKES)])].slice(0,3),
+          hue:(rnd()<.5?a.hue:b.hue)+ri(40)-20,
+          x:h.doorX+0.5, y:h.doorY+1.5,
+          parents:[a.id,b.id], birthDay:day(),
+        });
+        kid.home=h.id;
+        if(!h.owners.includes(kid.id)) h.owners.push(kid.id);
+        chron(`A child is born to ${a.name} and ${b.name} — welcome, little ${kid.name}.`, true);
+        remember(a,`our child ${kid.name} was born.`); remember(b,`our child ${kid.name} was born.`);
+        toast(`☀ A child is born — welcome, ${kid.name}`);
+      }
+    }
+  }
+  // passing on
+  for(const a of living){
+    if(ageOf(a)>a.lifespan && rnd()<0.25){
+      a.alive=false;
+      const h=homeOf(a);
+      let gx=Math.floor(a.x), gy=Math.floor(a.y);
+      if(h){ gx=h.x; gy=h.y+3; }
+      const g=nearWalkable(gx,gy)||[gx,gy];
+      if(inb(g[0],g[1])&&ground[K(g[0],g[1])]===G_GRASS){ ground[K(g[0],g[1])]=G_GRAVE; graves.push({x:g[0],y:g[1],name:a.name}); groundDirty=true; }
+      if(a.partner){ const p=byId(a.partner); if(p){ p.partner=null; remember(p,`${a.name} passed on. The cottage is quieter now.`); } }
+      chron(`${a.name} passed away peacefully at ${ageOf(a)} days old, after a full Emberhollow life. A stone was raised.`, true);
+      agents.splice(agents.indexOf(a),1);
+      if(sel&&sel.kind==="agent"&&sel.a===a){ sel=null; renderInspector(); }
+    }
+  }
+}
+
+/* ============================== founders ============================== */
+genWorld();
+for(let i=0;i<6;i++) makeAgent({birthDay:-10-ri(14)});
+chron("Six travellers crested the hill, saw the river bend, and decided this was the place. They named it Emberhollow.", true);
+chron("From here on, no one is in charge. Watch them choose plots, cut timber, and build lives.");
+
+/* ============================== rendering ============================== */
+const view=document.getElementById('view');
+const ctx=view.getContext('2d');
+let camX=W/2, camY=H/2, zoom=1.6, groundDirty=true;
+const groundCv=document.createElement('canvas'); groundCv.width=W*TILE; groundCv.height=H*TILE;
+const gctx=groundCv.getContext('2d');
+
+function drawGround(){
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const g=ground[K(x,y)], px=x*TILE, py=y*TILE;
+    if(g===G_WATER){
+      gctx.fillStyle="#2b4d63"; gctx.fillRect(px,py,TILE,TILE);
+      gctx.fillStyle="#3a6a84"; if((x+y)%3===0) gctx.fillRect(px+3,py+7,7,2);
+    } else if(g===G_BRIDGE){
+      gctx.fillStyle="#6b4f2e"; gctx.fillRect(px,py,TILE,TILE);
+      gctx.fillStyle="#7d5e39"; gctx.fillRect(px,py+2,TILE,3); gctx.fillRect(px,py+9,TILE,3);
+    } else {
+      const v=((x*7+y*13)%5);
+      gctx.fillStyle=["#33502f","#365433","#304c2d","#385635","#325130"][v];
+      gctx.fillRect(px,py,TILE,TILE);
+      if(v===2){ gctx.fillStyle="#3e5f3a"; gctx.fillRect(px+5,py+4,2,2); gctx.fillRect(px+11,py+10,2,2); }
+      if(wear[K(x,y)]>60){
+        gctx.fillStyle= wear[K(x,y)]>200 ? "#7a6640" : "#5d5a38";
+        gctx.beginPath(); gctx.ellipse(px+8,py+8,7,6,0,0,7); gctx.fill();
+      }
+      if(g===G_GRAVE){
+        gctx.fillStyle="#8d9088"; gctx.fillRect(px+5,py+5,6,9);
+        gctx.fillRect(px+4,py+7,8,2);
+        gctx.fillStyle="#6e716a"; gctx.fillRect(px+5,py+5,6,2);
+      }
+    }
+  }
+  // plaza well
+  gctx.fillStyle="#6f6a5e"; gctx.beginPath(); gctx.arc(31.5*TILE,21.5*TILE,10,0,7); gctx.fill();
+  gctx.fillStyle="#2b4d63"; gctx.beginPath(); gctx.arc(31.5*TILE,21.5*TILE,6,0,7); gctx.fill();
+  gctx.fillStyle="#8a8574"; gctx.fillRect(31.5*TILE-11,21.5*TILE-2,4,4); gctx.fillRect(31.5*TILE+7,21.5*TILE-2,4,4);
+}
+
+function daylight(){
+  const t=tod();
+  if(t>0.24&&t<0.80) return 0;
+  if(t<=0.24) return clamp((0.24-t)/0.14,0,1);
+  return clamp((t-0.80)/0.12,0,1);
+}
+
+function worldToScreen(x,y){ const s=TILE*zoom; return [ (x - camX)*s + view.width/2, (y - camY)*s + view.height/2 ]; }
+function screenToWorld(px,py){ const s=TILE*zoom; return [ (px - view.width/2)/s + camX, (py - view.height/2)/s + camY ]; }
+
+function draw(){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  const w=view.clientWidth*dpr, h=view.clientHeight*dpr;
+  if(view.width!==w||view.height!==h){ view.width=w; view.height=h; }
+  if(groundDirty){ drawGround(); groundDirty=false; }
+  ctx.imageSmoothingEnabled=false;
+  ctx.fillStyle="#0b110d"; ctx.fillRect(0,0,w,h);
+  const s=TILE*zoom*dpr;
+  const ox = w/2 - camX*s, oy = h/2 - camY*s;
+  ctx.setTransform(zoom*dpr,0,0,zoom*dpr, ox, oy);
+  ctx.drawImage(groundCv,0,0);
+
+  const night=daylight();
+  // depth-sorted sprites
+  const sprites=[];
+  for(const t of trees) sprites.push({y:t.y+0.9, f:()=>drawTree(t)});
+  for(const b of bushes) sprites.push({y:b.y+0.6, f:()=>drawBush(b)});
+  for(const hh of houses) sprites.push({y:hh.y+2.9, f:()=>drawHouse(hh,night)});
+  for(const a of agents) if(!a.inside) sprites.push({y:a.y, f:()=>drawAgent(a)});
+  sprites.sort((p,q)=>p.y-q.y);
+  for(const sp of sprites) sp.f();
+
+  // night tint
+  if(night>0){
+    ctx.fillStyle=`rgba(9,13,38,${night*0.48})`;
+    ctx.fillRect(0,0,W*TILE,H*TILE);
+    for(const hh of houses) if(hh.stage==="done" && hh.owners.some(id=>{const o=byId(id); return o&&o.inside;})){
+      ctx.fillStyle=`rgba(255,196,90,${0.5*night})`;
+      ctx.fillRect(hh.x*TILE+3, hh.y*TILE+14, 5,5);
+      ctx.fillRect(hh.x*TILE+3*TILE+ -8, hh.y*TILE+14, 5,5);
+    }
+  }
+  // bubbles + selection last (crisp above tint)
+  for(const a of agents) if(!a.inside && a.say) drawBubble(a);
+  if(sel&&sel.kind==="agent"&&sel.a.alive!==false){
+    const a=sel.a;
+    ctx.strokeStyle="#d8a24a"; ctx.lineWidth=1/zoom;
+    ctx.beginPath(); ctx.arc(a.x*TILE, a.y*TILE-4, 9, 0, 7); ctx.stroke();
+  }
+  if(sel&&sel.kind==="house"){
+    ctx.strokeStyle="#d8a24a"; ctx.lineWidth=1.5/zoom;
+    ctx.strokeRect(sel.h.x*TILE-1, sel.h.y*TILE-9, TILE*3+2, TILE*3+9);
+  }
+  ctx.setTransform(1,0,0,1,0,0);
+}
+
+function drawTree(t){
+  const px=t.x*TILE+TILE/2, py=t.y*TILE+TILE/2;
+  if(!t.alive){ ctx.fillStyle="#6b533a"; ctx.fillRect(px-3,py-2,6,5); return; }
+  ctx.fillStyle="#5a4026"; ctx.fillRect(px-2,py-2,4,8);
+  ctx.fillStyle="#2f5e33"; ctx.beginPath(); ctx.arc(px,py-8,8,0,7); ctx.fill();
+  ctx.fillStyle="#3c7240"; ctx.beginPath(); ctx.arc(px-3,py-10,5,0,7); ctx.fill();
+}
+function drawBush(b){
+  const px=b.x*TILE+TILE/2, py=b.y*TILE+TILE/2;
+  ctx.fillStyle="#3f6b3c"; ctx.beginPath(); ctx.arc(px,py,5,0,7); ctx.fill();
+  if(b.berries){ ctx.fillStyle="#c65a6e"; ctx.fillRect(px-3,py-2,2,2); ctx.fillRect(px+1,py,2,2); ctx.fillRect(px-1,py-4,2,2); }
+}
+function drawHouse(h,night){
+  const px=h.x*TILE, py=h.y*TILE, wpx=TILE*3;
+  const st=h.style;
+  if(h.stage==="building"){
+    ctx.fillStyle="rgba(90,74,48,.55)"; ctx.fillRect(px,py+6,wpx,TILE*3-6);
+    ctx.strokeStyle="#8a734a"; ctx.lineWidth=2;
+    ctx.strokeRect(px+2,py+8,wpx-4,TILE*3-10);
+    ctx.beginPath(); ctx.moveTo(px+2,py+8); ctx.lineTo(px+wpx-2,py+TILE*3-2); ctx.moveTo(px+wpx-2,py+8); ctx.lineTo(px+2,py+TILE*3-2); ctx.stroke();
+    const ph=Math.round((TILE*3-10)*h.progress);
+    ctx.fillStyle=st.wall; ctx.fillRect(px+2, py+TILE*3-2-ph, wpx-4, ph);
+    // wood pile tally
+    ctx.fillStyle="#8a6a3a";
+    for(let i=0;i<Math.min(h.woodHave,10);i++) ctx.fillRect(px-6, py+TILE*3-4-i*3, 5,2);
+    return;
+  }
+  // walls
+  ctx.fillStyle=st.wall; ctx.fillRect(px+1,py+8,wpx-2,TILE*3-8);
+  ctx.fillStyle=st.wallDark; ctx.fillRect(px+1,py+TILE*3-3,wpx-2,3);
+  // roof
+  ctx.fillStyle=st.roof;
+  if(st.roofShape==="round"){ ctx.beginPath(); ctx.arc(px+wpx/2, py+10, wpx/2+2, Math.PI, 0); ctx.fill(); }
+  else if(st.roofShape==="gable"){ ctx.beginPath(); ctx.moveTo(px-2,py+10); ctx.lineTo(px+wpx/2,py-8); ctx.lineTo(px+wpx+2,py+10); ctx.closePath(); ctx.fill(); }
+  else { ctx.beginPath(); ctx.moveTo(px-2,py+10); ctx.lineTo(px+wpx-6,py-6); ctx.lineTo(px+wpx+2,py+10); ctx.closePath(); ctx.fill(); }
+  // chimney + smoke when someone is inside
+  ctx.fillStyle="#6e6a60"; ctx.fillRect(px+wpx-10,py-4,5,10);
+  if(h.owners.some(id=>{const o=byId(id); return o&&o.inside;})){
+    ctx.fillStyle="rgba(220,220,210,.35)";
+    const t=simTime*2;
+    for(let i=0;i<3;i++){ const yy=py-8-i*5-(t%5); ctx.beginPath(); ctx.arc(px+wpx-7+Math.sin(t+i)*2, yy, 2+i, 0, 7); ctx.fill(); }
+  }
+  // door & windows
+  ctx.fillStyle="#4a3520"; ctx.fillRect(px+TILE+4,py+TILE*2, 8, TILE-2);
+  ctx.fillStyle=night>0?"#f0c060":"#20323e";
+  ctx.fillRect(px+3,py+14,5,5); ctx.fillRect(px+wpx-8,py+14,5,5);
+  // banner / flowers
+  if(st.banner){ ctx.fillStyle=hsl((h.style ? (h.owners[0]?(byId(h.owners[0])?.hue??40):40) : 40),70,60); ctx.fillRect(px-1,py+2,2,10); ctx.fillRect(px+1,py+2,6,4); }
+  if(st.flowers){ for(let i=0;i<5;i++){ ctx.fillStyle=["#dd8f9f","#e5c95e","#c65a6e","#9fb7e0"][i%4]; ctx.fillRect(px+2+i*9, py+TILE*3+2, 2,2); ctx.fillStyle="#3e5f3a"; ctx.fillRect(px+2+i*9, py+TILE*3+4, 2,2); } }
+}
+function drawAgent(a){
+  const px=a.x*TILE, py=a.y*TILE;
+  const sc = isAdult(a)?1: 0.62 + 0.38*clamp(ageOf(a)/6,0,1);
+  const bob = a.path&&a.path.length ? Math.sin(simTime*10+a.id)*1.2 : 0;
+  const yy=py+bob;
+  ctx.save(); ctx.translate(px,yy); ctx.scale(sc,sc);
+  // shadow
+  ctx.fillStyle="rgba(0,0,0,.25)"; ctx.beginPath(); ctx.ellipse(0,3,5,2,0,0,7); ctx.fill();
+  // body
+  ctx.fillStyle=hsl(a.hue, isElder(a)?18:42, isElder(a)?52:48);
+  ctx.fillRect(-4,-6,8,9);
+  // head
+  ctx.fillStyle=a.skin; ctx.beginPath(); ctx.arc(0,-9,4,0,7); ctx.fill();
+  ctx.fillStyle=isElder(a)?"#d8d3c8":a.hair; ctx.fillRect(-4,-13,8,3); ctx.fillRect(-4,-12,2,3);
+  // carrying timber
+  if(a.carrying>0){ ctx.fillStyle="#8a6a3a"; ctx.fillRect(-6,-8,12,2); }
+  ctx.restore();
+}
+function drawBubble(a){
+  const px=a.x*TILE, py=a.y*TILE-20;
+  ctx.font="7px 'IBM Plex Mono', monospace";
+  const t=a.say.txt, wpx=ctx.measureText(t).width+8;
+  ctx.fillStyle="rgba(236,229,211,.94)";
+  ctx.beginPath();
+  ctx.roundRect(px-wpx/2, py-10, wpx, 12, 4);
+  ctx.fill();
+  ctx.beginPath(); ctx.moveTo(px-2,py+2); ctx.lineTo(px+2,py+2); ctx.lineTo(px,py+5); ctx.fill();
+  ctx.fillStyle="#233020"; ctx.fillText(t, px-wpx/2+4, py-1);
+}
+
+/* ============================== camera & picking ============================== */
+let dragging=false, dragMoved=false, lx=0, ly=0;
+view.addEventListener('pointerdown', e=>{ dragging=true; dragMoved=false; lx=e.clientX; ly=e.clientY; view.classList.add('drag'); view.setPointerCapture(e.pointerId); });
+view.addEventListener('pointermove', e=>{
+  if(!dragging) return;
+  const dx=e.clientX-lx, dy=e.clientY-ly;
+  if(Math.abs(dx)+Math.abs(dy)>3) dragMoved=true;
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  camX-=dx*dpr/(TILE*zoom*dpr); camY-=dy*dpr/(TILE*zoom*dpr);
+  camX=clamp(camX,4,W-4); camY=clamp(camY,4,H-4);
+  lx=e.clientX; ly=e.clientY;
+});
+view.addEventListener('pointerup', e=>{
+  view.classList.remove('drag'); dragging=false;
+  if(dragMoved) return;
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  const [wx,wy]=screenToWorld(e.offsetX*dpr, e.offsetY*dpr);
+  // nearest villager first
+  let best=null,bd=0.9;
+  for(const a of agents){ if(a.inside) continue; const d=dist(wx,wy,a.x,a.y-0.4); if(d<bd){bd=d;best=a;} }
+  if(best){ select({kind:"agent",a:best}); return; }
+  const hh=houseAt(Math.floor(wx),Math.floor(wy));
+  if(hh){ select({kind:"house",h:hh}); return; }
+  select(null);
+});
+view.addEventListener('wheel', e=>{
+  e.preventDefault();
+  zoom=clamp(zoom*(e.deltaY<0?1.13:0.885), 0.7, 3.4);
+},{passive:false});
+
+/* ============================== UI: toast, speed ============================== */
+let toastT=null;
+function toast(txt){
+  const el=document.getElementById('toast');
+  el.textContent=txt; el.classList.add('show');
+  clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'), 3600);
+}
+document.getElementById('speedbox').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  speed=Number(b.dataset.s);
+  document.querySelectorAll('#speedbox button').forEach(x=>x.classList.toggle('on',x===b));
+});
+
+/* ============================== inspector ============================== */
+let sel=null;
+function select(s){ sel=s; renderInspector(); }
+function topTraits(a){
+  return Object.entries(a.traits).sort((p,q)=>q[1]-p[1]).slice(0,2).map(([k])=>TRAITNAMES[k]);
+}
+function renderInspector(){
+  const el=document.getElementById('inspector');
+  if(!sel){
+    el.innerHTML='<div class="empty">Click a villager to read their mind, or a finished cottage to step inside.<br><br>Everything here — where they build, whom they befriend, how they furnish their homes — is decided by the villagers themselves.</div>';
+    return;
+  }
+  if(sel.kind==="agent"){
+    const a=sel.a;
+    const relRows=[...a.rel.entries()]
+      .map(([id,r])=>({o:byId(id),r})).filter(x=>x.o)
+      .sort((p,q)=>q.r.aff-p.r.aff).slice(0,5)
+      .map(({o,r})=>{
+        const tag = a.partner===o.id?"partner ❤": a.parents.includes(o.id)?"parent": o.parents.includes(a.id)?"child": r.aff>6?"close friend": r.aff>1.5?"friend": r.aff<-1?"rival":"acquaintance";
+        return `<div><span>${esc(o.name)}</span><span>${tag}</span></div>`;
+      }).join("") || '<div><span style="color:var(--faint)">no one yet</span><span></span></div>';
+    const h=homeOf(a);
+    el.innerHTML=`
+      <div class="row">
+        <canvas class="portrait" id="pcv" width="16" height="16"></canvas>
+        <div>
+          <h2>${esc(a.name)}</h2>
+          <p class="sub">${stageOf(a)} · ${ageOf(a)} days old</p>
+          <div class="chips">${topTraits(a).map(t=>`<span class="chip warm">${t}</span>`).join("")}${a.likes.map(l=>`<span class="chip">${LIKE_ICON[l]||""} ${l}</span>`).join("")}</div>
+        </div>
+      </div>
+      <p class="thought" id="thought"></p>
+      <div class="bars" id="needbars"></div>
+      <p class="kv">home: <b>${h ? (h.stage==="done"?"a finished cottage "+describeSpot(h.x,h.y):"a cottage under construction ("+Math.round(h.progress*100)+"%)") : "none yet — sleeping under the stars"}</b></p>
+      <div class="secl">Bonds</div>
+      <div class="rels">${relRows}</div>
+      <div id="askbox">
+        <div class="secl">Speak with ${esc(a.name)}</div>
+        <div id="chatlog"></div>
+        <div id="askrow"><input id="askin" placeholder="Ask ${esc(a.name)} anything…" maxlength="240"><button id="askgo">Ask</button></div>
+        <p class="ainote" id="ainote"></p>
+      </div>`;
+    drawPortrait(a);
+    renderChatLog(a);
+    wireAsk(a);
+    refreshLive();
+  } else {
+    const h=sel.h;
+    const names=h.owners.map(id=>byId(id)?.name).filter(Boolean).join(" & ")||"an empty";
+    el.innerHTML=`
+      <h2>${esc(names)}${names==="an empty"?"":"'s"} cottage</h2>
+      <p class="sub">${h.stage==="done"?"finished":"under construction — "+Math.round(h.progress*100)+"% ("+h.woodHave+"/"+h.woodNeed+" timber)"} · ${describeSpot(h.x,h.y)}</p>
+      ${h.stage==="done"?'<canvas class="interior" id="icv" width="238" height="150"></canvas><div class="secl">Inside</div><div class="kv" id="ilist"></div>':'<p class="kv">Scaffolding is up. The owner is hauling timber from the grove; the wood-pile tally sits by the frame.</p>'}`;
+    if(h.stage==="done") drawInterior(h);
+  }
+}
+function drawPortrait(a){
+  const c=document.getElementById('pcv'); if(!c) return;
+  const p=c.getContext('2d'); p.imageSmoothingEnabled=false;
+  p.fillStyle="#1e2a22"; p.fillRect(0,0,16,16);
+  p.fillStyle=hsl(a.hue,42,48); p.fillRect(4,10,8,6);
+  p.fillStyle=a.skin; p.fillRect(4,3,8,8);
+  p.fillStyle=isElder(a)?"#d8d3c8":a.hair; p.fillRect(3,2,10,3); p.fillRect(3,3,2,4);
+  p.fillStyle="#1c1712"; p.fillRect(6,7,1,2); p.fillRect(10,7,1,2);
+}
+function drawInterior(h){
+  const c=document.getElementById('icv'); if(!c||!h.interior) return;
+  const p=c.getContext('2d'); p.imageSmoothingEnabled=false;
+  const o=byId(h.owners[0]); const hue=o?o.hue:40;
+  const CW=34, CH=30, ox=0, oy=6;
+  p.fillStyle=hsl(hue,14,22); p.fillRect(0,0,238,150);
+  p.fillStyle=hsl(hue,18,30);
+  for(let y=0;y<4;y++) for(let x=0;x<7;x++) if((x+y)%2===0) p.fillRect(ox+x*CW,oy+y*CH,CW,CH);
+  // rug
+  p.fillStyle=hsl((hue+40)%360,45,45); p.fillRect(ox+CW*2+6, oy+CH+6, CW*3-12, CH*2-12);
+  p.fillStyle=hsl((hue+40)%360,45,35); p.fillRect(ox+CW*2+12, oy+CH+12, CW*3-24, CH*2-24);
+  const list=document.getElementById('ilist'); let html="";
+  for(const it of h.interior){
+    const x=ox+it.x*CW+4, y=oy+it.y*CH+3;
+    switch(it.type){
+      case "bed": p.fillStyle="#7a4a3a"; p.fillRect(x,y,26,22); p.fillStyle="#d8cfc0"; p.fillRect(x+2,y+2,22,8); p.fillStyle=hsl(hue,40,55); p.fillRect(x+2,y+10,22,10); break;
+      case "table": p.fillStyle="#8a6a3a"; p.fillRect(x+2,y+4,22,14); p.fillStyle="#6b4f2e"; p.fillRect(x+4,y+18,3,5); p.fillRect(x+19,y+18,3,5); break;
+      case "hearth": p.fillStyle="#6e6a60"; p.fillRect(x,y,26,20); p.fillStyle="#e07a3a"; p.fillRect(x+8,y+8,10,9); p.fillStyle="#f0c060"; p.fillRect(x+11,y+11,4,6); break;
+      case "easel": p.fillStyle="#8a6a3a"; p.fillRect(x+4,y+2,3,22); p.fillRect(x+16,y+2,3,22); p.fillStyle="#ece5d3"; p.fillRect(x+2,y+3,20,13); p.fillStyle=hsl((hue+120)%360,50,55); p.fillRect(x+5,y+6,8,6); break;
+      case "books": p.fillStyle="#5a4026"; p.fillRect(x,y,24,22); for(let i=0;i<4;i++){ p.fillStyle=["#c65a6e","#84b06a","#d8a24a","#8fb5c9"][i]; p.fillRect(x+2+i*5,y+3,4,7);} for(let i=0;i<3;i++){ p.fillStyle=["#dd8f9f","#9fb7e0","#e5c95e"][i]; p.fillRect(x+2+i*6,y+12,5,7);} break;
+      case "plant": p.fillStyle="#7a4a3a"; p.fillRect(x+8,y+14,10,8); p.fillStyle="#3c7240"; p.beginPath(); p.arc(x+13,y+10,8,0,7); p.fill(); break;
+      case "lute": p.fillStyle="#8a6a3a"; p.beginPath(); p.arc(x+12,y+14,8,0,7); p.fill(); p.fillRect(x+11,y+0,3,12); break;
+      case "oven": p.fillStyle="#8d8578"; p.fillRect(x,y,24,20); p.fillStyle="#3a2f24"; p.beginPath(); p.arc(x+12,y+14,7,Math.PI,0); p.fill(); break;
+      case "clutter": p.fillStyle="#6b4f2e"; p.fillRect(x+2,y+12,8,8); p.fillStyle="#c65a6e"; p.fillRect(x+12,y+8,7,5); p.fillStyle="#8fb5c9"; p.fillRect(x+8,y+16,9,4); break;
+      case "cat": p.fillStyle="#3a3f4a"; p.beginPath(); p.arc(x+12,y+14,6,0,7); p.fill(); p.beginPath(); p.arc(x+17,y+9,3,0,7); p.fill(); break;
+    }
+    html+=`· ${esc(it.label)}<br>`;
+  }
+  if(list) list.innerHTML=html || "bare boards, for now";
+}
+function refreshLive(){
+  if(!sel||sel.kind!=="agent") return;
+  const a=sel.a;
+  const th=document.getElementById('thought');
+  if(th) th.textContent = a.inside ? "asleep at home, the hearth ticking" : "“"+a.thought+"”";
+  const nb=document.getElementById('needbars');
+  if(nb){
+    const rows=[["rest",a.needs.energy,""],["food",a.needs.food,""],["company",a.needs.social,"love"],["joy",a.needs.joy,"gold"]];
+    nb.innerHTML=rows.map(([l,v,c])=>`<div class="bar ${c}"><span>${l}</span><div class="tr"><div class="fl" style="width:${Math.round(v*100)}%"></div></div></div>`).join("");
+  }
+}
+setInterval(refreshLive, 900);
+
+/* ============================== Claude minds (sample) ============================== */
+let sampleFn=null, sampleGone=false;
+(async ()=>{
+  try{ if(window.claude?.use) sampleFn = await window.claude.use("sample"); }catch(e){}
+  updateAiUi();
+})();
+function updateAiUi(){
+  const b=document.getElementById('aiSum');
+  if(b) b.hidden=!sampleFn||sampleGone;
+  const note=document.getElementById('ainote');
+  if(note && (!sampleFn||sampleGone)) note.textContent="Live AI voices need this page opened in the Claude viewer — the town still runs on its own here.";
+}
+const ERRCOPY={
+  rate_limited:"Claude needs a breather — try again in a minute.",
+  session_expired:"You'll need to sign in to claude.ai again.",
+  refused:"Claude declined that one — try a different question.",
+  upstream_error:"Connection hiccup — try again.",
+  empty_completion:"…lost for words. Try rephrasing.",
+};
+function sampleErr(code){
+  if(["not_granted","sampling_disabled","not_declared","capability_disabled","capability_removed"].includes(code)){ sampleGone=true; updateAiUi(); return "Live AI voices aren't available in this view."; }
+  return ERRCOPY[code]||"Something went sideways — try again.";
+}
+function personaPrompt(a){
+  const friends=[...a.rel.entries()].map(([id,r])=>({o:byId(id),r})).filter(x=>x.o&&x.r.aff>1.5).map(x=>x.o.name);
+  const h=homeOf(a);
+  return `You are roleplaying ${a.name}, a villager in Emberhollow, a small self-running town beside a river. Stay in character; first person; warm, a little rustic; 1–3 short sentences per reply; never mention being an AI or a simulation.
+About you — a ${stageOf(a)}, ${ageOf(a)} days old; ${topTraits(a).join(" and ")}; you love ${a.likes.join(", ")}.
+Home: ${h ? (h.stage==="done"?"your finished cottage "+describeSpot(h.x,h.y):"a half-built cottage you're still raising") : "none yet; you sleep under the stars"}.
+${a.partner?("Your partner is "+(byId(a.partner)?.name||"gone")+". "):""}${friends.length?("Friends: "+friends.slice(0,4).join(", ")+". "):""}
+Recent memories: ${a.memories.slice(-5).join(" | ")||"the founding of the town"}.
+Right now you are ${a.inside?"asleep at home (answer drowsily)":a.thought}. It is ${todName()} on day ${day()}.`;
+}
+function renderChatLog(a){
+  const log=document.getElementById('chatlog'); if(!log) return;
+  log.innerHTML="";
+  for(const t of a.chatTurns){
+    const m=document.createElement('div');
+    m.className='msg '+(t.role==="user"?"you":"them");
+    m.textContent=t.content; log.append(m);
+  }
+  log.scrollTop=log.scrollHeight;
+}
+function wireAsk(a){
+  const input=document.getElementById('askin'), btn=document.getElementById('askgo'), note=document.getElementById('ainote');
+  if(!sampleFn||sampleGone){ input.disabled=true; btn.disabled=true; updateAiUi(); return; }
+  note.textContent="Answers come from Claude, in character, using "+a.name+"'s real memories from this run. First use asks your permission.";
+  const send=async ()=>{
+    const q=input.value.trim(); if(!q||btn.disabled) return;
+    input.value=""; btn.disabled=true;
+    a.chatTurns.push({role:"user",content:q});
+    renderChatLog(a);
+    const log=document.getElementById('chatlog');
+    const bubble=document.createElement('div'); bubble.className='msg them'; bubble.textContent="…thinking"; log.append(bubble); log.scrollTop=log.scrollHeight;
+    const turns=[{role:"user",content:personaPrompt(a)}, ...a.chatTurns.slice(-9)];
+    try{
+      const {text}=await sampleFn(turns,{modelTier:"quick",cache:false,onText:({text})=>{bubble.textContent=text; log.scrollTop=log.scrollHeight;}});
+      bubble.textContent=text;
+      a.chatTurns.push({role:"assistant",content:text});
+      if(a.chatTurns.length>10) a.chatTurns.splice(0,a.chatTurns.length-10);
+    }catch(e){
+      bubble.className='msg err'; bubble.textContent=sampleErr(e.code);
+      a.chatTurns.pop();
+    }finally{
+      if(document.getElementById('askgo')) document.getElementById('askgo').disabled=false;
+      log.scrollTop=log.scrollHeight;
+    }
+  };
+  btn.onclick=send;
+  input.onkeydown=e=>{ if(e.key==="Enter") send(); };
+}
+document.getElementById('aiSum').addEventListener('click', async ()=>{
+  if(!sampleFn||sampleGone) return;
+  const btn=document.getElementById('aiSum'); btn.disabled=true;
+  const d=day();
+  const ev=chronEntries.filter(e=>e.day>=d-1).slice(-18).map(e=>`Day ${e.day}: ${e.txt}`).join("\n")||"A quiet day of walking, building and small talk.";
+  const log=document.getElementById('log');
+  const ent=document.createElement('div'); ent.className='ent ai'; ent.textContent="✒ the chronicler dips their pen…";
+  log.prepend(ent);
+  try{
+    const {text}=await sampleFn(
+`You are the town chronicler of Emberhollow, a small self-running village. Write ONE storybook chronicle entry (3–5 sentences, warm, specific, slightly wry) about the recent happenings below. Use the villagers' names. Reply with only the entry text.
+
+${ev}`,
+      {modelTier:"quick",cache:false,onText:({text})=>{ent.textContent=text;}});
+    ent.textContent=text;
+  }catch(e){
+    ent.textContent=sampleErr(e.code);
+  }finally{ btn.disabled=false; }
+});
+
+/* ============================== main loop ============================== */
+let last=performance.now(), uiAt=0;
+function frame(now){
+  let dt=Math.min((now-last)/1000, 0.06); last=now;
+  const sdt=dt*speed;
+  if(sdt>0){
+    // sub-step so fast-forward stays stable
+    const steps=Math.max(1,Math.ceil(sdt/0.09));
+    const h=sdt/steps;
+    for(let s=0;s<steps;s++){
+      simTime+=h;
+      for(const a of agents) updateAgent(a,h);
+      if(simTime>pulseAt){ pulseAt=simTime+3; slowPulse(); }
+    }
+  }
+  if(now>uiAt){
+    uiAt=now+500;
+    document.getElementById('clock').innerHTML=`Day ${day()} &middot; ${todName()}`;
+    document.getElementById('pop').textContent=agents.length;
+    document.getElementById('hcount').textContent=houses.filter(h=>h.stage==="done").length;
+  }
+  draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+toast("Welcome to Emberhollow — six founders, no mayor, no script.");
+</script>
