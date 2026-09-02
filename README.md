@@ -3,6 +3,31 @@
 A single-file generative town simulation. Six founders arrive at a river bend with
 no mayor and no script; everything after that is decided by the villagers themselves.
 
+Built and maintained by the **Emberhollow Command Center** — a standing org of
+specialist agents (design-director + design-critic, sim-ai-engineer,
+character-brain-keeper, town-code-reviewer) defined in `.claude/agents/`.
+See `COMMAND_CENTER.md` for the org chart and working agreement.
+
+## Round 2 (Command Center release)
+
+- **Character brains** — 8 archetypes (the Tender, the Maker, the Wanderer, the
+  Keeper of Stories, the Dreamer, the Steady Hand, the Listener, the Ember).
+  Every villager gets a backstory, hard voice rules, two values, a fear, a quirk,
+  and a secret they deflect about in interviews. Children inherit brain fragments.
+  One brain drives both the sim and the live Claude interviews.
+- **Town life** — a communal tavern and market hall the whole town builds with no
+  foreman; jobs from each villager's passions with morning market stalls; evenings
+  at the tavern where rivals reconcile over a shared jug; festivals every 10th day
+  (the Harvest Fair, River Lantern Night, Founders' Day); a full family-tree
+  overlay (the "lineage" button) that survives deaths.
+- **Seasons & weather** — 12-day seasons repaint the world (blossoms, dry olive
+  autumn with falling leaves, snow); rain, drizzle and snow from a sim-clocked
+  weather machine; fireflies on clear nights; drifting cloud shadows; a graded
+  dawn-rose / dusk-amber / night-violet light with lantern and window glow.
+- **15 verified bug fixes** from the town-code-reviewer, including double-applied
+  chat affinity, hiDPI click picking, orphaned scaffolds on death, and grown
+  children now leaving home to build their own cottages.
+
 ## What the villagers do on their own
 
 - **Personalities & tastes** — every villager rolls six traits (sociable, industrious,
