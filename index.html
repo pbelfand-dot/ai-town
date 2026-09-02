@@ -2179,7 +2179,7 @@ function drawInterior(h){
     p.fillStyle="#ece5d3"; p.font="8px 'IBM Plex Mono',monospace";
     if(act==="sleep") p.fillText("z z",x+6,y-8);
     else if(act==="cook") p.fillText("~s~",x+5,y-9);
-    else if(act==="read") p.fillText("❦",x+6,y-7);
+    else if(act==="read"){ p.fillStyle="#ece5d3"; p.fillRect(x+6,y-10,4,3); p.fillStyle="#8a5a2c"; p.fillRect(x+7,y-10,1,3); }
     else if(act==="teach") p.fillText("!",x+7,y-7);
     oi++;
   }
@@ -2227,7 +2227,10 @@ function refreshLive(){
   if(sel.kind!=="agent") return;
   const a=sel.a;
   const th=document.getElementById('thought');
-  if(th) th.textContent = a.inside ? "asleep at home, the hearth ticking" : "“"+a.thought+"”";
+  if(th) th.textContent = a.inside
+    ? ({sleep:"asleep at home, the hearth ticking",cook:"at the stove, trying something",
+        read:"curled up indoors with a book",teach:"in a lesson at home",rest:"pottering about indoors"})[interiorActivityOf(a)]
+    : "“"+a.thought+"”";
   const nb=document.getElementById('needbars');
   if(nb){
     const rows=[["rest",a.needs.energy,""],["food",a.needs.food,""],["company",a.needs.social,"love"],["joy",a.needs.joy,"gold"]];
