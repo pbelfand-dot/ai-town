@@ -875,7 +875,11 @@ function civicPressure(amt,why){
 function holdElection(living){
   civic.mootDay=0;
   const adults=living.filter(a=>isAdult(a));
-  if(adults.length<4){ civic.pressure=Math.max(0,civic.pressure-3); return; }
+  if(adults.length<4){
+    civic.pressure=Math.max(0,civic.pressure-3);
+    if(civic.form) civic.electedDay=day();   // too few to vote: term clock resets, no daily re-moot spam
+    return;
+  }
   const standScore=c=> c.traits.social*1.5 + skillOf(c,"lore") + Math.min(1,(c.wealth||0)/15)*0.5
     + [...c.rel.values()].reduce((s,r)=>s+Math.max(0,r.aff),0)/40;
   const cands=adults.slice().sort((p,q)=>standScore(q)-standScore(p)).slice(0,3);
@@ -2946,6 +2950,11 @@ async function ollamaAsk(model,input,o={}){
     if(e && e.name==="AbortError") throw {code:"cancelled", message:"aborted", text};
     throw {code:"upstream_error", message:String(e&&e.message||e), text};
   }
+  // flush the decoder and any final non-newline-terminated line (defensive; Ollama terminates all lines)
+  buf+=dec.decode();
+  const tail=buf.trim();
+  if(tail){ try{ const j=JSON.parse(tail); const d=j.message&&j.message.content;
+    if(d){ text+=d; if(o.onText) o.onText({text, delta:d}); } }catch(e){} }
   if(!text.trim()) throw {code:"empty_completion", message:"the local model wrote nothing"};
   return {text};
 }
@@ -3010,7 +3019,8 @@ function wireAsk(a){
   const send=async ()=>{
     const q=input.value.trim(); if(!q||btn.disabled) return;
     input.value=""; btn.disabled=true;
-    a.chatTurns.push({role:"user",content:q});
+    const turn={role:"user",content:q};
+    a.chatTurns.push(turn);
     renderChatLog(a);
     const log=document.getElementById('chatlog');
     const bubble=document.createElement('div'); bubble.className='msg them'; bubble.textContent="…thinking"; log.append(bubble); log.scrollTop=log.scrollHeight;
@@ -3026,7 +3036,7 @@ function wireAsk(a){
     }catch(e){
       if(e.code==="cancelled"){ bubble.remove(); }
       else { bubble.className='msg err'; bubble.textContent=sampleErr(e.code); }
-      if(a.chatTurns[a.chatTurns.length-1]?.role==="user") a.chatTurns.pop();
+      if(a.chatTurns[a.chatTurns.length-1]===turn) a.chatTurns.pop();   // pop only OUR unanswered turn
     }finally{
       if(askCtl===ctl) askCtl=null;
       const g=document.getElementById('askgo');
@@ -3037,9 +3047,12 @@ function wireAsk(a){
   btn.onclick=send;
   input.onkeydown=e=>{ if(e.key==="Enter") send(); };
 }
+let sumCtl=null;
 document.getElementById('aiSum').addEventListener('click', async ()=>{
   if(!aiAvailable()) return;
   const btn=document.getElementById('aiSum'); btn.disabled=true;
+  sumCtl?.abort();
+  const ctl=new AbortController(); sumCtl=ctl;
   const d=day();
   const ev=chronEntries.filter(e=>e.day>=d-1).slice(-18).map(e=>`Day ${e.day}: ${e.txt}`).join("\n")||"A quiet day of walking, building and small talk.";
   const log=document.getElementById('log');
@@ -3050,11 +3063,15 @@ document.getElementById('aiSum').addEventListener('click', async ()=>{
 `You are the town chronicler of Emberhollow, a small self-running village. Write ONE storybook chronicle entry (3–5 sentences, warm, specific, slightly wry) about the recent happenings below. Use the villagers' names. Reply with only the entry text.
 
 ${ev}`,
-      {onText:({text})=>{ent.textContent=text;}});
+      {signal:ctl.signal, onText:({text})=>{ent.textContent=text;}});
     ent.textContent=text;
   }catch(e){
-    ent.textContent=sampleErr(e.code);
-  }finally{ btn.disabled=false; }
+    if(e&&e.code==="cancelled") ent.remove();
+    else ent.textContent=sampleErr(e&&e.code);
+  }finally{
+    if(sumCtl===ctl) sumCtl=null;
+    btn.disabled=false;
+  }
 });
 
 /* ============================== main loop ============================== */

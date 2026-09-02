@@ -173,11 +173,17 @@ const snap = p => p.evaluate(`(${function () {
     const kid = makeAgent({ birthDay: eh.day(), parents: [p1.id, p2.id], x: b.doorX + 0.5, y: b.doorY + 1.5 });
     pickTeacher();
     const lore0 = (kid.skills && kid.skills.lore) || 0;
-    // step through two school mornings
-    for (let i = 0; i < 40; i++) eh.step(20);
+    // step through school mornings WITHIN childhood, other needs held satisfied
+    // so hunger/sleep can't outrank class (the scenario, not the mechanism)
+    const done = () => ((kid.skills && kid.skills.lore) || 0) > lore0 + 0.005
+      || kid.memories.some(m => m.includes('schoolhouse') || m.includes('Town Book'));
+    for (let i = 0; i < 34 && !done(); i++) {
+      kid.needs.energy = 1; kid.needs.food = 1; kid.needs.joy = 0.9; kid.groom = 1;
+      eh.step(12);
+    }
     const lore1 = (kid.skills && kid.skills.lore) || 0;
-    const taught = kid.memories.some(m => m.includes('schoolhouse'));
-    return { skip: false, grew: lore1 > lore0, taught, lore1: +lore1.toFixed(3) };
+    const taught = kid.memories.some(m => m.includes('schoolhouse') || m.includes('Town Book'));
+    return { skip: false, grew: lore1 > lore0 + 0.005, taught, lore1: +lore1.toFixed(3) };
   }})()`);
   report('schoolhouse teaches the young', school.skip ? 'skip' : (school.grew || school.taught),
     school.skip ? 'no room for a schoolhouse' : `lore ${school.lore1}${school.taught ? ', remembers the lesson' : ''}`);
