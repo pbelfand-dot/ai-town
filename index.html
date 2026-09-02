@@ -127,6 +127,8 @@
       <button data-s="0" title="pause">&#10073;&#10073;</button><button data-s="1" class="on">1&times;</button><button data-s="4">4&times;</button><button data-s="12">12&times;</button>
     </span>
     <button class="pill" id="ftBtn" title="the town's family tree">&#127794; lineage</button>
+    <button class="pill" id="saveBtn" title="save the town in this browser">&#128190; save</button>
+    <button class="pill" id="loadBtn" title="return to your saved town" hidden>&#10227; load</button>
   </header>
   <main id="lay">
     <div id="viewwrap">
@@ -153,8 +155,20 @@
 <script>
 'use strict';
 /* ============================== utilities ============================== */
-let _seed = 987612345;
-function rnd(){ _seed|=0; _seed = _seed + 0x6D2B79F5 | 0; let t = Math.imul(_seed ^ _seed>>>15, 1|_seed); t = t + Math.imul(t ^ t>>>7, 61|t) ^ t; return ((t ^ t>>>14)>>>0)/4294967296; }
+/* Seeded RNG streams (Master Directive §35): world generation, sim behavior, and
+   weather each own a stream; cosmetics use Math.random. Toggling cosmetics or
+   weather can therefore never re-roll the world, founders, names, or personalities.
+   `rnd()` delegates to the CURRENT stream: world during load-time generation,
+   sim forever after (the switch happens right after the founders are created). */
+function makeRng(seed){
+  const o={s:seed|0};
+  o.next=function(){ o.s=o.s+0x6D2B79F5|0; let t=Math.imul(o.s^o.s>>>15,1|o.s); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; };
+  return o;
+}
+const WORLD_SEED=987612345;
+const rngWorld=makeRng(WORLD_SEED), rngSim=makeRng(WORLD_SEED^0x5EED5EED), rngWeather=makeRng(WORLD_SEED^0x077EA7E2);
+let _rngCur=rngWorld;
+function rnd(){ return _rngCur.next(); }
 const ri = n => Math.floor(rnd()*n);
 const pick = a => a[ri(a.length)];
 const clamp = (v,a,b)=> v<a?a : v>b?b : v;
@@ -393,7 +407,64 @@ function makeBrain(a){
   while(values.length<2 && vp.length) values.push(vp.splice(ri(vp.length),1)[0]);
   const vo=[...A.voice], voice=[];
   while(voice.length<2 && vo.length) voice.push(vo.splice(ri(vo.length),1)[0]);
-  return { arch, backstory, voice, values, fear:pick(A.fears), quirk:pick(A.quirks), secret:pick(A.secrets), sig:pick(A.sigs) };
+  return { arch, backstory, voice, values, fear:pick(A.fears), quirk:pick(A.quirks), secret:pick(A.secrets), sig:pick(A.sigs),
+           attract:rollAttract(), goal:null };
+}
+/* [brain v2] attraction preference profiles (§12): personal, probabilistic,
+   ASYMMETRIC. Weights vary per person — some care greatly, some not at all,
+   some are inverted. No universal beauty score exists anywhere in this file. */
+function rollAttract(){
+  return {
+    warmth: rnd()*2-0.5, humor: rnd()*1.6-0.4, industry: rnd()*1.6-0.5,
+    artistry: rnd()*1.6-0.5, status: rnd()*1.4-0.6, adventurousness: rnd()*1.6-0.6,
+    familiarity: 0.3+rnd()*1.2,
+  };
+}
+function attractionScore(a,b){
+  const w=a.brain&&a.brain.attract; if(!w) return 0.5;
+  const t=b.traits; let s=0;
+  s+=w.warmth*(t.social*0.4+(b.brain&&b.brain.values.includes("kindness")?0.3:0));
+  s+=w.humor*((b.brain&&b.brain.arch==="ember")?0.5:t.openness*0.25);
+  s+=w.industry*t.industry*0.45;
+  s+=w.artistry*t.artistry*0.45;
+  s+=w.status*Math.min(1,(b.wealth||0)/16)*0.6;
+  s+=w.adventurousness*(t.openness*0.25+t.nature*0.3);
+  const r=a.rel.get(b.id);
+  s+=w.familiarity*Math.min(1,((r&&r.chats)||0)/8)*0.5;   // the overlooked become beloved
+  if(a.brain&&b.brain) s+=a.brain.values.filter(v=>b.brain.values.includes(v)).length*0.12;
+  s+=a.likes.filter(l=>b.likes.includes(l)).length*0.07;
+  return clamp(0.4+s*0.25, 0, 1);
+}
+/* [brain v2] life goals — one active aspiration, refreshed at milestones */
+function refreshGoal(a){
+  const B=a.brain; if(!B) return;
+  const opts=[];
+  const h=homeOf(a);
+  if(isAdult(a)&&(!h||h.stage!=="done")) opts.push({kind:"home", text:"raise a cottage of my own"+(a.likes.includes("fishing")?" by the river":"")});
+  const d=skillDomainOf(a.likes[0]);
+  if(skillOf(a,d)<0.8) opts.push({kind:"master", d, text:"truly master "+d});
+  if(!a.partner&&isAdult(a)&&!isElder(a)) opts.push({kind:"love", text:"find someone to share the hearth with"});
+  if(!(a.knows||[]).length&&(skillOf(a,"cooking")>0.1||a.likes.includes("baking"))) opts.push({kind:"discover", text:"discover a dish no one has tasted"});
+  const rivalE=[...a.rel.entries()].find(([id,r])=>r.aff<-1&&byId(id));
+  if(rivalE) opts.push({kind:"peace", who:rivalE[0], text:"make peace with "+byId(rivalE[0]).name});
+  if(isElder(a)) opts.push({kind:"legacy", text:"pass on what I know before the long rest"});
+  B.goal = opts.length?pick(opts):{kind:"live", text:"live gently and be remembered kindly"};
+}
+function checkGoal(a){
+  const g=a.brain&&a.brain.goal; if(!g){ refreshGoal(a); return; }
+  let done=false;
+  const h=homeOf(a);
+  if(g.kind==="home") done=!!(h&&h.stage==="done");
+  else if(g.kind==="master") done=skillOf(a,g.d)>=0.8;
+  else if(g.kind==="love") done=!!a.partner;
+  else if(g.kind==="discover") done=(a.knows||[]).length>0;
+  else if(g.kind==="peace") done=g.who!=null && (a.rel.get(g.who)?.aff||0)>1;
+  if(done){
+    a.needs.joy=1;
+    remember(a,`I did it — ${g.text}.`);
+    if(rnd()<0.6) chron(`${a.name} quietly achieved a long-held hope: ${g.text}.`);
+    refreshGoal(a);
+  }
 }
 /* inheritance: one value from each parent; sometimes a parent's fear/quirk,
    sometimes mutated to a related one (re-rolled inside that parent's archetype pool).
@@ -411,6 +482,12 @@ function inheritBrain(kid, pa, pb){
   if(src){
     if(rnd()<.45) B.fear  = rnd()<.35 ? pick(ARCHES[src.brain.arch].fears)  : src.brain.fear;
     if(rnd()<.35) B.quirk = rnd()<.35 ? pick(ARCHES[src.brain.arch].quirks) : src.brain.quirk;
+  }
+  // attraction leanings: tendency inherited, never destiny — half parents' blend, half own roll
+  if(B.attract) for(const k in B.attract){
+    const pav=pa&&pa.brain&&pa.brain.attract?(pa.brain.attract[k]??B.attract[k]):B.attract[k];
+    const pbv=pb&&pb.brain&&pb.brain.attract?(pb.brain.attract[k]??B.attract[k]):B.attract[k];
+    B.attract[k]=((pav+pbv)/2)*0.5 + B.attract[k]*0.5;
   }
 }
 
@@ -442,9 +519,15 @@ function makeAgent(opts={}){
     chatTurns:[], thought:"taking in the morning air",
   };
   a.brain = makeBrain(a);   // [brain] one mind, read by the sim AND the interviews
+  seedSkills(a);
+  a.wealth = isAdult(a) ? 4+ri(6) : 0;
+  a.knows = [];
+  a.career = null;          // chosen properly in slowPulse via considerCareer (§14)
+  refreshGoal(a);
   agents.push(a);
   lineage.push({id:a.id, name:a.name, parents:(a.parents||[]).slice(), partner:null, born:a.birthDay, died:null});
-  if(lineage.length>400) lineage.splice(0, lineage.length-400);
+  // trim the registry without ever evicting founders (roots anchor the family tree)
+  if(lineage.length>400){ const i=lineage.findIndex(l=>l.parents.length); if(i>=0) lineage.splice(i,1); }
   return a;
 }
 const byId = id => agents.find(a=>a.id===id) || null;
@@ -481,10 +564,11 @@ function houseSpotScore(a,bx,by){
   s += rnd()*1.5;
   return s;
 }
+function tileFlora(x,y){ return trees.some(t=>t.x===x&&t.y===y) || bushes.some(b=>b.x===x&&b.y===y); }
 function regionFree(bx,by){
   for(let y=by;y<by+4;y++) for(let x=bx-1;x<bx+4;x++){
     if(!inb(x,y)) return false;
-    if(ground[K(x,y)]!==G_GRASS || solid[K(x,y)]) return false;
+    if(ground[K(x,y)]!==G_GRASS || solid[K(x,y)] || tileFlora(x,y)) return false;
   }
   return true;
 }
@@ -572,7 +656,142 @@ const JOBS={
   music:{job:"busker",ware:"songs"},                    whittling:{job:"carver",ware:"wooden toys"},
   foraging:{job:"forager",ware:"wild mushrooms"},       birdwatching:{job:"feather-trader",ware:"feather charms"},
 };
-const jobOf = a => JOBS[a.likes[0]] || {job:"trader",ware:"odds and ends"};
+const jobOf = a => a.career || JOBS[a.likes[0]] || {job:"trader",ware:"odds and ends"};
+
+/* ============================== skills, careers, recipes, wealth (§14–§18) ============================== */
+/* SKILLS: a.skills = {domain: 0..1}. Growth by practice and teaching, with
+   diminishing returns; mastery is OBSERVABLE (faster building, richer yields,
+   named wares, better teaching) — never invisible +1 spam. */
+const SKILL_DOMAINS=["farming","cooking","building","fishing","crafting","trading","music","lore"];
+const LIKE_DOMAIN={gardening:"farming",foraging:"farming",baking:"cooking",fishing:"fishing",
+  whittling:"crafting",painting:"crafting",music:"music",reading:"lore",stargazing:"lore",birdwatching:"lore"};
+const skillDomainOf = like => LIKE_DOMAIN[like]||"crafting";
+function gainSkill(a,d,amt){
+  if(!a.skills) a.skills={};
+  const s=a.skills[d]||0;
+  a.skills[d]=clamp(s + amt*(1-s*0.7), 0, 1);           // diminishing toward mastery
+  if(s<0.8 && a.skills[d]>=0.8){
+    chron(`${a.name} is now spoken of around town as a master of ${d}.`, true);
+    remember(a,`people started calling me a master of ${d}.`);
+  }
+}
+function seedSkills(a){
+  a.skills={};
+  const adult=isAdult(a);
+  for(const l of a.likes){
+    const d=skillDomainOf(l);
+    a.skills[d]=Math.max(a.skills[d]||0, adult ? 0.15+rnd()*0.3 : 0.02+rnd()*0.05);
+  }
+  if(adult) a.skills.building=Math.max(a.skills.building||0, 0.1+a.traits.industry*0.25);
+  // family knowledge: growing up beside a skilled parent leaves real traces (§13)
+  for(const pid of a.parents||[]){
+    const p=byId(pid); if(!p||!p.skills) continue;
+    for(const d in p.skills) if(p.skills[d]>0.4)
+      a.skills[d]=Math.max(a.skills[d]||0, 0.06+rnd()*0.08);
+  }
+}
+const skillOf=(a,d)=> (a.skills&&a.skills[d])||0;
+
+/* CAREERS (§14): scored choice, interest weighted heaviest; people sometimes
+   refuse sensible money for love of the work, or take any work out of need. */
+const CAREERS=[
+  {domain:"cooking",  job:"baker",       ware:"honey cakes"},
+  {domain:"farming",  job:"gardener",    ware:"greens and posies"},
+  {domain:"fishing",  job:"angler",      ware:"river fish"},
+  {domain:"crafting", job:"carver",      ware:"wooden toys"},
+  {domain:"crafting", job:"painter",     ware:"small paintings"},
+  {domain:"music",    job:"busker",      ware:"songs"},
+  {domain:"lore",     job:"chartwright", ware:"star charts"},
+  {domain:"trading",  job:"peddler",     ware:"odds and ends"},
+  {domain:"building", job:"builder",     ware:"mended stools"},
+];
+const DOMAIN_APT={farming:"nature",cooking:"tidy",building:"industry",fishing:"nature",
+  crafting:"artistry",trading:"social",music:"artistry",lore:"openness"};
+function chooseCareer(a){
+  let best=null,bs=-1e9;
+  for(const c of CAREERS){
+    const interest=a.likes.some(l=>skillDomainOf(l)===c.domain)?1:0;
+    const apt=a.traits[DOMAIN_APT[c.domain]]||0.5;
+    const fam=(a.parents||[]).some(id=>skillOf(byId(id)||{},c.domain)>0.4)?1:0;
+    const mentor=fam||[...a.rel.entries()].some(([id,r])=>r.aff>4&&skillOf(byId(id)||{},c.domain)>0.5)?1:0;
+    const workers=agents.filter(o=>o!==a&&o.career&&o.career.domain===c.domain).length;
+    const demand=clamp(1-workers/3,0,1);
+    const need=(a.wealth||0)<3?0.7:0;
+    const s= interest*3 + apt*1.2 + skillOf(a,c.domain)*2 + fam*0.8 + mentor*0.5
+           + demand*1.1 + need + rnd()*0.6;
+    if(s>bs){bs=s;best=c;}
+  }
+  return best;
+}
+function considerCareer(a){
+  const c=chooseCareer(a); if(!c) return;
+  const old=a.career;
+  if(!old){ a.career=c; return; }
+  if(old.job!==c.job && rnd()<0.5){
+    a.career=c;
+    chron(`${a.name} set aside the ${old.job}'s trade to be a ${c.job} — ${a.likes.some(l=>skillDomainOf(l)===c.domain)?"the heart wants what it wants":"the coin was needed"}.`);
+    remember(a,`I gave up being a ${old.job} to become a ${c.job}.`);
+  }
+}
+
+/* RECIPES (§17–18): knowledge objects. Nobody is born knowing them; they are
+   DISCOVERED by experiment, then spread only person-to-person. */
+const RECIPES={};
+const BASE_DISHES=[
+  {id:"bread", name:"river bread"},
+  {id:"jam",   name:"berry jam"},
+  {id:"stew",  name:"fish stew"},
+  {id:"cakes", name:"honey cakes"},
+];
+const VARIANT_ADJ={gardening:"herb",foraging:"mushroom",fishing:"smoked",stargazing:"star-spiced",
+  baking:"honeyed",reading:"old-book",music:"festival",whittling:"hearth",birdwatching:"berry",painting:"painted-sugar"};
+function learnRecipe(a,id){
+  if(!a.knows) a.knows=[];
+  if(!a.knows.includes(id)) a.knows.push(id);
+}
+function tryDiscover(a){
+  const known=new Set(a.knows||[]);
+  const unknownBase=BASE_DISHES.find(b=>!known.has(b.id));
+  const chance=0.12+skillOf(a,"cooking")*0.3;
+  if(rnd()>chance) return false;
+  if(unknownBase && (!RECIPES[unknownBase.id] || rnd()<0.6)){
+    if(!RECIPES[unknownBase.id])
+      RECIPES[unknownBase.id]={id:unknownBase.id,name:unknownBase.name,base:true,discoveredBy:a.name,day:day()};
+    learnRecipe(a,unknownBase.id);
+    chron(`Discovery! After many burnt attempts, ${a.name} worked out ${RECIPES[unknownBase.id].name}. For now, only ${a.name} knows the way of it.`, true);
+    remember(a,`I discovered ${RECIPES[unknownBase.id].name}. Mine first.`);
+    toast(`✶ ${a.name} discovered ${RECIPES[unknownBase.id].name}`);
+    a.needs.joy=1;
+    return true;
+  }
+  // a variant of something they already know
+  const baseId=(a.knows||[])[ri((a.knows||[]).length)];
+  if(baseId && RECIPES[baseId] && Object.keys(RECIPES).length<40){
+    const adj=VARIANT_ADJ[pick(a.likes)]||"secret";
+    const vid=baseId+"-"+a.id+"-"+((a.knows||[]).length);
+    if(RECIPES[vid]) return false;
+    RECIPES[vid]={id:vid,name:`${a.name}'s ${adj} ${RECIPES[baseId].name}`,base:false,variantOf:baseId,discoveredBy:a.name,day:day()};
+    learnRecipe(a,vid);
+    chron(`${a.name} invented ${RECIPES[vid].name}. The kitchen smells of it for days.`, true);
+    remember(a,`I invented ${RECIPES[vid].name}.`);
+    a.needs.joy=clamp(a.needs.joy+.5,0,1);
+    return true;
+  }
+  return false;
+}
+function shareRecipe(from,to,how){
+  const mine=(from.knows||[]).filter(id=>!(to.knows||[]).includes(id));
+  if(!mine.length) return false;
+  const id=pick(mine);
+  learnRecipe(to,id);
+  remember(to,`${from.name} ${how} the way of ${RECIPES[id]?.name||id}.`);
+  remember(from,`I passed the way of ${RECIPES[id]?.name||id} to ${to.name}.`);
+  if(rnd()<0.5) chron(`${from.name} ${how} ${RECIPES[id]?.name||"a recipe"} — now ${to.name} knows it too.`);
+  return true;
+}
+
+/* WEALTH (§20 seed): small, physical-ish; earned selling, spent eating and celebrating. */
+const wealthWord = a => (a.wealth||0)<3?"poor":(a.wealth||0)<10?"getting by":(a.wealth||0)<20?"comfortable":"prosperous";
 
 const FESTS=["the Harvest Fair","River Lantern Night","Founders' Day"];
 let festState={day:0, name:null};
@@ -582,7 +801,7 @@ const festActive=()=> festState.day===day() && tod()>=0.50 && tod()<=0.86;
 function regionFree4(bx,by){
   for(let y=by;y<by+4;y++) for(let x=bx-1;x<bx+5;x++){
     if(!inb(x,y)) return false;
-    if(ground[K(x,y)]!==G_GRASS || solid[K(x,y)]) return false;
+    if(ground[K(x,y)]!==G_GRASS || solid[K(x,y)] || tileFlora(x,y)) return false;
   }
   return true;
 }
@@ -679,8 +898,9 @@ for(let i=0;i<4;i++) clouds.push({x:Math.random()*W*TILE, y:Math.random()*H*TILE
 
 const atmo = { state:"clear", until:DAY*0.7, live:0, target:0, wind:8 };
 function rollWeather(){
+  // weather owns its RNG stream — it must never perturb the sim stream (§35)
   const wet = (season===0||season===2) ? 0.48 : 0.32;     // spring & autumn are the wet seasons
-  const r = rnd();
+  const r = rngWeather.next();
   let st = r < 1-wet ? "clear" : r < 1-wet*0.45 ? "drizzle" : "rain";
   if(season===3 && st!=="clear") st="snow";
   if(st!==atmo.state && st!=="clear")
@@ -690,8 +910,8 @@ function rollWeather(){
   atmo.state=st;
   atmo.target = st==="clear"?0 : st==="drizzle"?34 : st==="rain"?WEATHER_MAX : 56;
   if(REDUCED_MOTION) atmo.target = (atmo.target*0.5)|0;
-  atmo.wind = (rnd()*2-1)*(st==="snow"?10:26);
-  atmo.until = simTime + DAY*(0.15+rnd()*0.45);
+  atmo.wind = (rngWeather.next()*2-1)*(st==="snow"?10:26);
+  atmo.until = simTime + DAY*(0.15+rngWeather.next()*0.45);
 }
 function updateAtmosphere(dt){
   const s = seasonOf(day());
@@ -763,17 +983,41 @@ function chooseTask(a){
       if(t){ a.thought=`cutting timber for the town ${cb.kind}`; return goto(a,t.x,t.y,{type:"chop",tree:t}); }
     } else { a.thought=`raising beams at the ${cb.kind}`; return goto(a,cb.doorX,cb.doorY,{type:"constructComm",b:cb.id}); }
   }
+  // curiosity in the kitchen: experimenting is how dishes get DISCOVERED (§17)
+  if(h && h.stage==="done" && isAdult(a) && !isNight() && a.traits.openness>0.45
+     && (skillOf(a,"cooking")>0.12 || a.likes.includes("baking")) && rnd()<0.05){
+    a.thought="fiddling with the pot — something new is almost there";
+    return goto(a,h.doorX,h.doorY,{type:"experiment",t:0});
+  }
+  // passing knowledge on (§15): parents teach children, masters take apprentices
+  if(isAdult(a) && rnd()<0.1){
+    let bestD=null,bl=0;
+    for(const d in (a.skills||{})) if(a.skills[d]>0.5&&a.skills[d]>bl){ bl=a.skills[d]; bestD=d; }
+    if(bestD){
+      const learner=agents.find(o=>o!==a&&o.alive&&!o.inside&&(!o.task||!o.task.locked)
+        && skillOf(o,bestD)<bl-0.25
+        && (o.parents.includes(a.id) || (a.rel.get(o.id)?.aff||0)>4));
+      if(learner){
+        a.thought=`going to show ${learner.name} the way of ${bestD}`;
+        return goto(a,Math.floor(learner.x),Math.floor(learner.y),{type:"mentor",who:learner.id,domain:bestD});
+      }
+    }
+  }
   // festival afternoon & evening: the plaza calls
   if(festActive() && rnd()<.8){
     a.thought=`joining ${festState.name} on the plaza`;
     return goto(a, 29+ri(6), 19+ri(6), {type:"festival", t:0});
   }
-  // morning market: sellers set out their wares
+  // morning market: sellers set out their wares — named dishes if they know any (§18)
   const m=marketHouse();
   if(m && marketOpen() && isAdult(a) && rnd()<.35){
     const j=jobOf(a);
-    a.thought=`setting out ${j.ware} at the market`;
-    return goto(a, m.x+ri(4), m.y+3, {type:"sell", t:0, ware:j.ware, job:j.job});
+    let ware=j.ware;
+    if(j.domain==="cooking" && a.knows && a.knows.length){
+      const r=RECIPES[pick(a.knows)]; if(r) ware=r.name;
+    }
+    a.thought=`setting out ${ware} at the market`;
+    return goto(a, m.x+ri(4), m.y+3, {type:"sell", t:0, ware, job:j.job});
   }
   // evenings at the tavern
   const tv=tavernHouse();
@@ -809,8 +1053,10 @@ function chooseTask(a){
     return goto(a,tx,ty,{type:"hobby",like, t:0});
   }
   // wander / visit a friend's porch
-  // [brain] wander thoughts take archetype colour about half the time
-  a.thought = (a.brain && rnd()<.5) ? pick(ARCHES[a.brain.arch].wt)
+  // [brain] wander thoughts take archetype colour half the time; sometimes the goal surfaces
+  const gw=a.brain&&a.brain.goal;
+  a.thought = (gw && rnd()<.22) ? ((a.wealth||0)<2 ? "the coin pouch is nearly empty — and still: "+gw.text : "turning over a quiet hope — "+gw.text)
+    : (a.brain && rnd()<.5) ? pick(ARCHES[a.brain.arch].wt)
     : pick(["taking a slow walk","following the worn path","seeing what the day brings","humming to no one"]);
   return goto(a, 2+ri(W-4), 2+ri(H-4), {type:"idle"});
 }
@@ -863,10 +1109,16 @@ function endChat(a){
     remember(a,`${b.name} and I became real friends.`); remember(b,`${a.name} and I became real friends.`);
   }
   if(delta<-.5 && rnd()<.4){ say(a,"hmph."); chron(`${a.name} and ${b.name} talked past each other about ${topic} and parted a little colder.`); }
-  // romance — festival evenings loosen hearts
+  // close friends pass recipes along the way (§18 — person to person only)
+  if(ra.aff>4 && rnd()<0.12){ if(!shareRecipe(a,b,"shared")) shareRecipe(b,a,"shared"); }
+  // [brain v2] romance (§12): the first spark is personal and asymmetric
+  // (attractionScore both ways), while lasting partnership still needs the
+  // long history (affinity) and real compatibility. Festival evenings loosen hearts.
   const loveChance = (festActive() && tod()>0.6) ? .6 : .35;
+  const attrA=attractionScore(a,b), attrB=attractionScore(b,a);
   if(!a.partner && !b.partner && isAdult(a)&&isAdult(b)&&!isElder(a)&&!isElder(b)
-     && ra.aff>7 && rb.aff>7 && c>0.4 && rnd()<loveChance && !a.parents.includes(b.id) && !b.parents.includes(a.id)){
+     && ra.aff>6 && rb.aff>6 && attrA>0.52 && attrB>0.52 && c>0.3
+     && rnd()<loveChance*clamp(attrA+attrB-0.6,0.1,1.2) && !a.parents.includes(b.id) && !b.parents.includes(a.id)){
     a.partner=b.id; b.partner=a.id;
     say(a,"❤"); say(b,"❤");
     chron(`Under the ${isNight()?"stars":"open sky"}, ${a.name} and ${b.name} chose each other. Emberhollow has a new pair.`, true);
@@ -877,6 +1129,36 @@ function endChat(a){
     mergeHomes(a,b);
   }
 }
+/* teaching sessions — knowledge moves person to person, never by magic (§15) */
+function startTeach(teacher,learner,domain){
+  const dur=7+rnd()*4;
+  teacher.task={type:"teach",locked:true,with:learner.id,domain,t:dur}; teacher.path=null;
+  learner.task={type:"learn",locked:true,with:teacher.id,domain,t:dur}; learner.path=null;
+  teacher.thought=`teaching ${learner.name} ${domain}`;
+  learner.thought=`learning ${domain} from ${teacher.name}`;
+  say(teacher,"watch close",2.5);
+}
+function endTeach(teacher){
+  const learner=byId(teacher.task.with);
+  const domain=teacher.task.domain;
+  teacher.task=null;
+  if(!learner) return;
+  if(learner.task&&learner.task.type==="learn"&&learner.task.with===teacher.id) learner.task=null;
+  gainSkill(learner,domain, 0.05+skillOf(teacher,domain)*0.06);   // taught > self-taught
+  teacher.needs.joy=clamp(teacher.needs.joy+.2,0,1);
+  learner.needs.joy=clamp(learner.needs.joy+.15,0,1);
+  remember(learner,`${teacher.name} taught me ${domain}.`);
+  remember(teacher,`I taught ${learner.name} a little ${domain}.`);
+  const ra=rel(teacher,learner.id), rb=rel(learner,teacher.id);
+  ra.aff=clamp(ra.aff+.4,-3,14); rb.aff=clamp(rb.aff+.6,-3,14);
+  if(domain==="cooking"&&rnd()<0.6) shareRecipe(teacher,learner,"taught");
+  if(rnd()<0.25){
+    const kid=learner.parents.includes(teacher.id);
+    chron(kid ? `${teacher.name} spent the afternoon teaching ${learner.name} ${domain} — the family way, passed down.`
+              : `${teacher.name} has taken ${learner.name} on as a kind of apprentice in ${domain}.`);
+  }
+}
+
 function mergeHomes(a,b){
   const ha=homeOf(a), hb=homeOf(b);
   const keep = (ha&&ha.stage==="done")?ha : (hb&&hb.stage==="done")?hb : ha||hb;
@@ -939,10 +1221,11 @@ function updateAgent(a, dt){
     case "chop": {
       t.t+=dt;
       if(!t.tree.alive){ a.task=null; break; }
-      if(t.t>2.6/(0.5+a.traits.industry)){
+      if(t.t>2.6/(0.4+a.traits.industry*0.6+skillOf(a,"building")*0.8)){   // skill shows: faster felling
         t.tree.alive=false; t.tree.regrow=simTime+DAY*(1.5+rnd());
         solid[K(t.tree.x,t.tree.y)]=0;
         a.carrying=Math.min(4,a.carrying+2);
+        gainSkill(a,"building",0.008);
         a.task=null;
       }
       break;
@@ -957,7 +1240,8 @@ function updateAgent(a, dt){
       const h=homeOf(a);
       if(!h||h.stage!=="building"){ a.task=null; break; }
       t.t+=dt;
-      h.progress=clamp(h.progress + dt*0.045*(0.5+a.traits.industry), 0, 1);
+      h.progress=clamp(h.progress + dt*0.04*(0.4+a.traits.industry*0.5+skillOf(a,"building")*0.9), 0, 1);
+      gainSkill(a,"building",dt*0.004);
       if(h.progress>=1) { finishHouse(h); a.task=null; }
       break;
     }
@@ -966,7 +1250,8 @@ function updateAgent(a, dt){
       if(t.t>1.6){
         if(t.bush.berries){
           t.bush.berries=false; t.bush.regrow=simTime+DAY*0.8;
-          n.food=clamp(n.food+.6,0,1);
+          n.food=clamp(n.food+0.45+skillOf(a,"farming")*0.3,0,1);   // a practiced hand gathers more
+          gainSkill(a,"farming",0.012);
         }
         a.task=null;   // a bush someone else emptied feeds no one
       }
@@ -982,21 +1267,29 @@ function updateAgent(a, dt){
     case "hobby": {
       t.t+=dt;
       n.joy=clamp(n.joy + dt*0.06, 0, 1);
+      gainSkill(a, skillDomainOf(t.like), dt*0.003);   // practice quietly compounds
+      // homebody hobbies happen INSIDE — visible through the interior view, not vanished
+      if(t.like==="baking"||t.like==="reading"){
+        const hh=homeOf(a);
+        if(hh&&hh.stage==="done"&&dist(a.x,a.y,hh.doorX+0.5,hh.doorY+0.5)<1.6) a.inside=true;
+      }
       if(rnd()<dt*0.25) say(a, LIKE_ICON[t.like]||"~", 2);
       if(t.like==="foraging") n.food=clamp(n.food+dt*0.03,0,1);
       if(t.t>7+rnd()*5){
-        a.task=null;
+        a.task=null; a.inside=false;
         if(rnd()<.16){
-          const line=({painting:`${a.name} finished a small painting of ${pick(["the river","the plaza well","a neighbour's roof","the evening light"])}.`,
-            music:`${a.name}'s tune drifted across the plaza; a few villagers hummed along.`,
-            fishing:`${a.name} pulled a fat silver fish from the river.`,
-            stargazing:`${a.name} swears a green star fell past the grove.`,
-            baking:`The smell of ${a.name}'s baking reached half the town.`,
-            gardening:`${a.name}'s flower beds are the brightest thing on the lane.`,
-            reading:`${a.name} finished a book and immediately started it again.`,
-            whittling:`${a.name} whittled a tiny wooden fox for a neighbour.`,
-            foraging:`${a.name} found a ring of mushrooms and left it undisturbed, just in case.`,
-            birdwatching:`${a.name} counted nine wrens before breakfast.`})[t.like];
+          // functions, not eager template literals: only the chosen hobby draws from the RNG
+          const mk=({painting:()=>`${a.name} finished a small painting of ${pick(["the river","the plaza well","a neighbour's roof","the evening light"])}.`,
+            music:()=>`${a.name}'s tune drifted across the plaza; a few villagers hummed along.`,
+            fishing:()=>`${a.name} pulled a fat silver fish from the river.`,
+            stargazing:()=>`${a.name} swears a green star fell past the grove.`,
+            baking:()=>`The smell of ${a.name}'s baking reached half the town.`,
+            gardening:()=>`${a.name}'s flower beds are the brightest thing on the lane.`,
+            reading:()=>`${a.name} finished a book and immediately started it again.`,
+            whittling:()=>`${a.name} whittled a tiny wooden fox for a neighbour.`,
+            foraging:()=>`${a.name} found a ring of mushrooms and left it undisturbed, just in case.`,
+            birdwatching:()=>`${a.name} counted nine wrens before breakfast.`})[t.like];
+          const line=mk&&mk();
           if(line){ chron(line); remember(a, line.replace(a.name+" ","I ").replace(a.name+"'s","my")); }
         }
       }
@@ -1011,9 +1304,11 @@ function updateAgent(a, dt){
         if(s){
           n.joy=clamp(n.joy+.08,0,1);
           s.needs.joy=clamp(s.needs.joy+.1,0,1);
+          if((a.wealth||0)>0){ a.wealth--; s.wealth=(s.wealth||0)+1; }   // coin actually moves (§20)
+          gainSkill(s,"trading",0.01);
           say(s, pick(["for you!","fresh this morning!","take two!"]),2.4);
           say(a,"mm!",2);
-          if(rnd()<.1) chron(`${s.name} the ${s.task.job} traded ${s.task.ware} to ${a.name} for a song and a favour owed.`);
+          if(rnd()<.1) chron(`${s.name} the ${s.task.job} traded ${s.task.ware} to ${a.name} for a coin and a favour owed.`);
         }
         a.task=null;
       }
@@ -1026,6 +1321,7 @@ function updateAgent(a, dt){
       if(rnd()<dt*0.18) say(a, pick([`fresh ${t.ware}!`,"come look!","best in town!"]),2.6);
       if(t.t>10+rnd()*6 || !marketOpen()){
         a.task=null;
+        a.wealth=(a.wealth||0)+1;                       // the day's takings
         if(rnd()<.12) chron(`${a.name} sold every last ${t.ware} before noon.`);
       }
       break;
@@ -1076,8 +1372,42 @@ function updateAgent(a, dt){
       const b=houses.find(x=>x.id===t.b);
       if(!b || b.stage!=="building"){ a.task=null; break; }
       t.t=(t.t||0)+dt;
-      b.progress=clamp(b.progress + dt*0.045*(0.5+a.traits.industry), 0, 1);
+      b.progress=clamp(b.progress + dt*0.04*(0.4+a.traits.industry*0.5+skillOf(a,"building")*0.9), 0, 1);
+      gainSkill(a,"building",dt*0.004);
       if(b.progress>=1){ finishCommunal(b); a.task=null; }
+      break;
+    }
+    case "experiment": {
+      const hx=homeOf(a);
+      if(!hx||hx.stage!=="done"){ a.task=null; a.inside=false; break; }
+      a.inside=true;
+      t.t+=dt;
+      gainSkill(a,"cooking",dt*0.004);
+      if(rnd()<dt*0.2) say(a,pick(["hmm…","almost…","more herbs?"]),2);
+      if(t.t>7+rnd()*4){ tryDiscover(a); a.inside=false; a.task=null; }
+      break;
+    }
+    case "mentor": {
+      const b=byId(t.who);
+      if(!b||!b.alive||b.inside){ a.task=null; break; }
+      if(dist(a.x,a.y,b.x,b.y)<1.8){
+        if(!b.task||!b.task.locked) startTeach(a,b,t.domain); else a.task=null;
+      } else if(stepAlong(a,dt)){
+        if(dist(a.x,a.y,b.x,b.y)<2.4 && (!b.task||!b.task.locked)) startTeach(a,b,t.domain);
+        else if(!goto(a,Math.floor(b.x),Math.floor(b.y),{type:"mentor",who:b.id,domain:t.domain})) a.task=null;
+      }
+      break;
+    }
+    case "teach": {
+      t.t-=dt;
+      if(rnd()<dt*0.35) say(a,pick(["watch close","like this","again — slower"]),2.2);
+      if(t.t<=0) endTeach(a);
+      break;
+    }
+    case "learn": {
+      t.t-=dt;
+      if(rnd()<dt*0.3) say(a,pick(["like this?","oh — I see","show me again"]),2.2);
+      if(t.t<=0) a.task=null;
       break;
     }
     case "idle": a.task=null; break;
@@ -1086,18 +1416,22 @@ function updateAgent(a, dt){
 }
 
 /* slow pulse: babies, deaths, regrowth */
-let pulseAt=0;
+let pulseAt=0, communalRetryAt=0;
 function slowPulse(){
   // regrow
   for(const t of trees) if(!t.alive && simTime>t.regrow){ if(walkable(t.x,t.y)){ t.alive=true; solid[K(t.x,t.y)]=1; } }
   for(const b of bushes) if(!b.berries && simTime>b.regrow) b.berries=true;
   // town milestones: communal buildings rise from headcount alone
   const living = agents.filter(a=>a.alive);
-  if(living.length>=9  && !houses.some(h=>h.kind==="tavern")) startCommunal("tavern");
-  if(living.length>=14 && !houses.some(h=>h.kind==="market")) startCommunal("market");
+  if(simTime>communalRetryAt){
+    let failed=false;
+    if(living.length>=9  && !houses.some(h=>h.kind==="tavern")) failed = !startCommunal("tavern") || failed;
+    if(living.length>=14 && !houses.some(h=>h.kind==="market")) failed = !startCommunal("market") || failed;
+    if(failed) communalRetryAt = simTime + DAY;      // crowded map: back off a day, don't rescan every pulse
+  }
   // every 10th day is a festival, announced at midday
   if(day()%10===0 && day()>=10 && festState.day!==day() && tod()>=0.45){
-    festState={day:day(), name:FESTS[Math.floor(day()/10)%FESTS.length]};
+    festState={day:day(), name:FESTS[(Math.floor(day()/10)-1)%FESTS.length]};
     chron(`Today is ${festState.name}! From midday the plaza fills with music, food and old stories.`, true);
     toast(`✦ ${festState.name} — the plaza calls`);
   }
@@ -1112,6 +1446,20 @@ function slowPulse(){
         remember(a,"I left home to build my own cottage.");
       }
     }
+  }
+  // careers (§14): chosen at adulthood, reconsidered every ~10 days — never per tick
+  for(const a of living){
+    if(!isAdult(a)) continue;
+    if(!a.career){ considerCareer(a); a.careerAt=day(); }
+    else if(day()-(a.careerAt||0)>=10){ a.careerAt=day(); if(rnd()<0.35) considerCareer(a); }
+  }
+  // households quietly pass knowledge along; hopes resolve into memories
+  for(const a of living){
+    if(a.partner && a.id<a.partner && rnd()<0.04){
+      const p=byId(a.partner);
+      if(p && !shareRecipe(a,p,"showed")) { if(p) shareRecipe(p,a,"showed"); }
+    }
+    if(a.brain && rnd()<0.1) checkGoal(a);
   }
   // children
   if(living.length<30){
@@ -1159,6 +1507,7 @@ function slowPulse(){
 /* ============================== founders ============================== */
 genWorld();
 for(let i=0;i<6;i++) makeAgent({birthDay:-10-ri(14)});
+_rngCur=rngSim;   // world generation is over — all runtime behavior draws from the sim stream
 chron("Six travellers crested the hill, saw the river bend, and decided this was the place. They named it Emberhollow.", true);
 chron("From here on, no one is in charge. Watch them choose plots, cut timber, and build lives.");
 
@@ -1710,9 +2059,13 @@ function renderInspector(){
         </div>
       </div>
       ${a.brain?`<p class="kv" style="margin:6px 0 0">${esc(a.brain.backstory)}</p><p class="kv" style="font-style:italic;color:var(--faint);margin:2px 0 0">the neighbours have noticed: ${esc(a.brain.quirk.split(" ").slice(0,3).join(" "))}…</p>`:""}
+      ${a.brain&&a.brain.goal?`<p class="thought" style="color:var(--brass);margin:6px 0 0">dreams of: ${esc(a.brain.goal.text)}</p>`:""}
       <p class="thought" id="thought"></p>
       <div class="bars" id="needbars"></div>
+      <div class="secl">Craft</div>
+      <div class="bars" id="skillbars"></div>
       <p class="kv">home: <b>${h ? (h.stage==="done"?"a finished cottage "+describeSpot(h.x,h.y):"a cottage under construction ("+Math.round(h.progress*100)+"%)") : "none yet — sleeping under the stars"}</b></p>
+      <p class="kv">trade: <b>${a.career?esc(a.career.job):"none yet"}</b> · standing: <b>${wealthWord(a)}</b>${(a.knows&&a.knows.length)?` · knows <b>${a.knows.length}</b> recipe${a.knows.length>1?"s":""}`:""}</p>
       <div class="secl">Bonds</div>
       <div class="rels">${relRows}</div>
       <div id="askbox">
@@ -1735,6 +2088,7 @@ function renderInspector(){
     el.innerHTML=`
       <h2>${esc(title)}</h2>
       <p class="sub">${b.stage==="done" ? subtitle : "under construction — "+Math.round(b.progress*100)+"% ("+b.woodHave+"/"+b.woodNeed+" timber) · a communal effort"} · ${describeSpot(b.x,b.y)}</p>
+      ${b.stage==="done"?'<canvas class="interior" id="ccv" width="238" height="150"></canvas>':""}
       <div class="secl">${b.stage==="done" ? (b.kind==="tavern"?"At the bar just now":"At the stalls just now") : "On the build crew"}</div>
       <div class="kv">${here.length ? here.map(o=>{
           const doing = o.task ? ({tavern:"raising a mug",sell:"selling "+(o.task.ware||"wares"),buy:"browsing the stalls",
@@ -1742,6 +2096,7 @@ function renderInspector(){
           return `<b>${esc(o.name)}</b> — ${doing}`;
         }).join("<br>") : (b.stage==="done" ? "empty just now — try "+(b.kind==="tavern"?"the evening":"the morning") : "waiting for hands and timber")}</div>
       ${b.kind==="tavern"&&b.stage==="done" ? '<p class="kv" style="margin-top:8px">Evenings here mend quarrels — rivals who share a jug often walk out friends.</p>' : ""}`;
+    if(b.stage==="done") drawCommunalInterior(b);
   } else {
     const h=sel.h;
     const names=h.owners.map(id=>byId(id)?.name).filter(Boolean).join(" & ")||"an empty";
@@ -1761,6 +2116,28 @@ function drawPortrait(a){
   p.fillStyle=isElder(a)?"#d8d3c8":a.hair; p.fillRect(3,2,10,3); p.fillRect(3,3,2,4);
   p.fillStyle="#1c1712"; p.fillRect(6,7,1,2); p.fillRect(10,7,1,2);
 }
+/* living interiors (§6): furniture is capability, occupants are drawn doing
+   what they are actually doing — nobody vanishes into a doorway */
+function interiorActivityOf(a){
+  const t=a.task&&a.task.type;
+  if(t==="sleep") return "sleep";
+  if(t==="experiment") return "cook";
+  if(t==="hobby"&&a.task.like==="baking") return "cook";
+  if(t==="hobby"&&a.task.like==="reading") return "read";
+  if(t==="teach"||t==="learn") return "teach";
+  return "rest";
+}
+function interiorSpotFor(h,act){
+  const items=h.interior||[];
+  const find=t=>items.find(i=>i.type===t);
+  const it = act==="sleep" ? find("bed")
+    : act==="cook" ? (find("oven")||find("hearth"))
+    : act==="read" ? (find("books")||find("table"))
+    : act==="teach" ? (find("table")||find("hearth"))
+    : (find("table")||items[0]);
+  return it?{x:it.x,y:it.y}:{x:3,y:2};
+}
+const IACT_WORD={sleep:"asleep",cook:"at the stove",read:"reading by the shelf",teach:"in a lesson",rest:"resting"};
 function drawInterior(h){
   const c=document.getElementById('icv'); if(!c||!h.interior) return;
   const p=c.getContext('2d'); p.imageSmoothingEnabled=false;
@@ -1789,10 +2166,65 @@ function drawInterior(h){
     }
     html+=`· ${esc(it.label)}<br>`;
   }
-  if(list) list.innerHTML=html || "bare boards, for now";
+  // occupants, drawn at the furniture their activity uses
+  const occ=agents.filter(o=>o.home===h.id&&o.inside);
+  let oi=0;
+  for(const o of occ.slice(0,4)){
+    const act=interiorActivityOf(o), sp=interiorSpotFor(h,act);
+    const x=ox+sp.x*CW+22+(oi%2)*7, y=oy+sp.y*CH+12+((oi/2)|0)*6;
+    p.fillStyle="rgba(0,0,0,.3)"; p.fillRect(x-4,y+8,9,2);
+    p.fillStyle=hsl(o.hue,42,48); p.fillRect(x-4,y-2,8,9);
+    p.fillStyle=o.skin; p.beginPath(); p.arc(x,y-5,4,0,7); p.fill();
+    p.fillStyle=isElder(o)?"#d8d3c8":o.hair; p.fillRect(x-4,y-9,8,3);
+    p.fillStyle="#ece5d3"; p.font="8px 'IBM Plex Mono',monospace";
+    if(act==="sleep") p.fillText("z z",x+6,y-8);
+    else if(act==="cook") p.fillText("~s~",x+5,y-9);
+    else if(act==="read") p.fillText("❦",x+6,y-7);
+    else if(act==="teach") p.fillText("!",x+7,y-7);
+    oi++;
+  }
+  const occLine=occ.length?occ.map(o=>`${esc(o.name)} — ${IACT_WORD[interiorActivityOf(o)]}`).join("; "):"";
+  if(list) list.innerHTML=(occLine?`<b>${occLine}</b><br>`:"")+(html||"bare boards, for now");
+}
+function drawCommunalInterior(b){
+  const c=document.getElementById('ccv'); if(!c) return;
+  const p=c.getContext('2d'); p.imageSmoothingEnabled=false;
+  p.fillStyle="#241c12"; p.fillRect(0,0,238,150);
+  p.fillStyle="#2f2517";
+  for(let y=0;y<5;y++) for(let x=0;x<8;x++) if((x+y)%2===0) p.fillRect(x*30,y*30,30,30);
+  if(b.kind==="tavern"){
+    p.fillStyle="#5a4026"; p.fillRect(10,14,150,18);
+    p.fillStyle="#8a6a3a"; p.fillRect(10,14,150,4);
+    p.fillStyle="#d8a24a"; for(let i=0;i<4;i++) p.fillRect(20+i*36,20,5,6);
+    p.fillStyle="#6b4f2e"; p.fillRect(40,70,50,26); p.fillRect(140,86,50,26);
+    p.fillStyle="#e07a3a"; p.fillRect(208,18,18,20);
+    p.fillStyle="#f0c060"; p.fillRect(214,24,6,9);
+  } else {
+    for(let i=0;i<3;i++){
+      p.fillStyle="#5a4026"; p.fillRect(16+i*76,30,56,20);
+      p.fillStyle=["#d8a24a","#dd8f9f","#8fb5c9"][i]; p.fillRect(16+i*76,26,56,6);
+    }
+  }
+  const cx=b.x+(b.w||4)/2, cy=b.y+1.5;
+  const here=agents.filter(o=>o.alive&&!o.inside&&o.task&&["tavern","sell","buy","festival","chat"].includes(o.task.type)&&dist(o.x,o.y,cx,cy)<4.5);
+  let i=0;
+  for(const o of here.slice(0,8)){
+    const x= b.kind==="tavern" ? 52+(i%3)*50+((i/3)|0)*10 : 32+(i%3)*76+((i/3)|0)*12;
+    const y= b.kind==="tavern" ? 62+((i/3)|0)*30 : 64+((i/3)|0)*26;
+    p.fillStyle="rgba(0,0,0,.3)"; p.fillRect(x-4,y+8,9,2);
+    p.fillStyle=hsl(o.hue,42,48); p.fillRect(x-4,y-2,8,9);
+    p.fillStyle=o.skin; p.beginPath(); p.arc(x,y-5,4,0,7); p.fill();
+    p.fillStyle=isElder(o)?"#d8d3c8":o.hair; p.fillRect(x-4,y-9,8,3);
+    i++;
+  }
 }
 function refreshLive(){
-  if(!sel||sel.kind!=="agent") return;
+  if(!sel) return;
+  if(sel.kind==="house"){
+    if(sel.h.stage==="done"){ sel.h.kind ? drawCommunalInterior(sel.h) : drawInterior(sel.h); }
+    return;
+  }
+  if(sel.kind!=="agent") return;
   const a=sel.a;
   const th=document.getElementById('thought');
   if(th) th.textContent = a.inside ? "asleep at home, the hearth ticking" : "“"+a.thought+"”";
@@ -1800,6 +2232,12 @@ function refreshLive(){
   if(nb){
     const rows=[["rest",a.needs.energy,""],["food",a.needs.food,""],["company",a.needs.social,"love"],["joy",a.needs.joy,"gold"]];
     nb.innerHTML=rows.map(([l,v,c])=>`<div class="bar ${c}"><span>${l}</span><div class="tr"><div class="fl" style="width:${Math.round(v*100)}%"></div></div></div>`).join("");
+  }
+  const sb=document.getElementById('skillbars');
+  if(sb){
+    const top=Object.entries(a.skills||{}).filter(([,v])=>v>0.03).sort((p,q)=>q[1]-p[1]).slice(0,3);
+    sb.innerHTML=top.length?top.map(([d,v])=>`<div class="bar gold"><span>${d}</span><div class="tr"><div class="fl" style="width:${Math.round(v*100)}%"></div></div></div>`).join("")
+      : '<div class="kv" style="color:var(--faint)">no craft yet — watching, learning</div>';
   }
 }
 setInterval(refreshLive, 900);
@@ -1844,6 +2282,122 @@ function openFamilyTree(){
   document.addEventListener('keydown', e=>{ if(e.key==="Escape"&&ov&&!ov.hidden) ov.hidden=true; });
 })();
 
+/* ============================== persistence (§36: versioned saves) ============================== */
+const SAVE_KEY="emberhollow-save";
+const SAVE_V=1;
+const AGENT_FIELDS=["id","name","hue","skin","hair","x","y","home","carrying","partner","parents",
+  "birthDay","lifespan","memories","thought","likes","traits","needs","brain","chatTurns",
+  "skills","wealth","knows","career","careerAt"];
+function serializeGame(){
+  return {
+    v:SAVE_V, savedAt:Date.now(), simTime, nextId, nextHouse,
+    rng:{sim:rngSim.s, weather:rngWeather.s},
+    festState, atmo:{state:atmo.state,until:atmo.until,live:atmo.live,target:atmo.target,wind:atmo.wind},
+    usedNames:[...usedNames],
+    agents: agents.map(a=>{ const o={}; for(const f of AGENT_FIELDS) o[f]=a[f]; o.rel=[...a.rel]; return o; }),
+    houses: houses.map(h=>({...h})),
+    lineage: lineage.slice(),
+    graves: graves.slice(),
+    chron: chronEntries.slice(-200),
+    trees: trees.map(t=>({x:t.x,y:t.y,alive:t.alive,regrow:t.regrow})),
+    bushes: bushes.map(b=>({x:b.x,y:b.y,berries:b.berries,regrow:b.regrow})),
+    ground: Array.from(ground), wear: Array.from(wear),
+    recipes: (typeof RECIPES!=="undefined") ? RECIPES : null,
+  };
+}
+function migrateSave(d){
+  if(!d || typeof d.v!=="number") throw new Error("unrecognized save");
+  // future schema versions migrate here, oldest→newest; never silently drop a civilization
+  if(d.v===1) return d;
+  throw new Error("save version "+d.v+" is newer than this build");
+}
+function rebuildSolid(){
+  solid.fill(0);
+  for(let i=0;i<ground.length;i++) if(ground[i]===G_WATER) solid[i]=1;
+  for(const t of trees) if(t.alive) solid[K(t.x,t.y)]=1;
+  for(const h of houses){
+    for(let y=h.y;y<h.y+3;y++) for(let x=h.x;x<h.x+(h.w||3);x++) if(inb(x,y)) solid[K(x,y)]=1;
+    solid[K(h.doorX,h.doorY)]=0;
+  }
+}
+function saveGame(){
+  try{
+    localStorage.setItem(SAVE_KEY, JSON.stringify(serializeGame()));
+    const lb=document.getElementById('loadBtn'); if(lb) lb.hidden=false;
+    return true;
+  }catch(e){ return false; }
+}
+function loadGame(){
+  let d;
+  try{ d=migrateSave(JSON.parse(localStorage.getItem(SAVE_KEY))); }
+  catch(e){ toast("Couldn't read the saved town — it was left untouched."); return false; }
+  try{
+    simTime=d.simTime; nextId=d.nextId; nextHouse=d.nextHouse;
+    rngSim.s=d.rng.sim|0; rngWeather.s=d.rng.weather|0; _rngCur=rngSim;
+    festState=d.festState||{day:0,name:null};
+    Object.assign(atmo,d.atmo);
+    usedNames.clear(); for(const n of d.usedNames) usedNames.add(n);
+    ground.set(d.ground); wear.set(d.wear);
+    trees.length=0; for(const t of d.trees) trees.push({x:t.x,y:t.y,alive:t.alive,regrow:t.regrow});
+    bushes.length=0; for(const b of d.bushes) bushes.push({x:b.x,y:b.y,berries:b.berries,regrow:b.regrow});
+    houses.length=0; for(const h of d.houses) houses.push(h);
+    graves.length=0; for(const g of d.graves) graves.push(g);
+    lineage.length=0; for(const l of d.lineage) lineage.push(l);
+    agents.length=0;
+    for(const s of d.agents){
+      s.rel=new Map(s.rel); s.task=null; s.path=null; s.say=null; s.inside=false; s.alive=true;
+      agents.push(s);
+    }
+    if(typeof RECIPES!=="undefined" && d.recipes){ for(const k in RECIPES) delete RECIPES[k]; Object.assign(RECIPES,d.recipes); }
+    chronEntries.length=0;
+    const log=document.getElementById('log'); if(log) log.innerHTML="";
+    for(const e of d.chron){
+      chronEntries.push(e);
+      if(log){ const el=document.createElement('div'); el.className='ent';
+        el.innerHTML=`<span class="d">D${e.day}</span>${esc(e.txt)}`; log.prepend(el); }
+    }
+    rebuildSolid();
+    season=seasonOf(day()); groundDirty=true;
+    pulseAt=simTime+3; sel=null; renderInspector();
+    toast(`Welcome back — day ${day()}, ${agents.length} souls remembered.`);
+    return true;
+  }catch(e){ toast("Load failed partway — reload the page to start fresh."); return false; }
+}
+(function(){
+  const sb=document.getElementById('saveBtn'), lb=document.getElementById('loadBtn');
+  let has=false; try{ has=!!localStorage.getItem(SAVE_KEY); }catch(e){}
+  if(lb) lb.hidden=!has;
+  if(sb) sb.addEventListener('click', ()=>{ toast(saveGame()?"Town saved — it will be here when you return.":"Saving isn't available in this view."); });
+  if(lb) lb.addEventListener('click', ()=>loadGame());
+})();
+
+/* test/inspection API — drives the real game from tests/run-tests.mjs; no gameplay effect */
+window.__eh={
+  version:SAVE_V,
+  fingerprint(){
+    let h=0; const mix=v=>{h=(Math.imul(h,31)+(v|0))|0;};
+    for(let i=0;i<ground.length;i++) mix(ground[i]);
+    for(const t of trees) mix(t.x*131+t.y*7);
+    for(const b of bushes) mix(b.x*17+b.y*3);
+    for(const l of lineage.slice(0,6)) for(let i=0;i<l.name.length;i++) mix(l.name.charCodeAt(i));
+    for(const a of agents){ mix(a.hue); mix((a.traits.social*997)|0); mix((a.traits.artistry*997)|0); }
+    return h>>>0;
+  },
+  step(sec){
+    const H=0.09; let t=0;
+    while(t<sec){
+      const d=Math.min(H,sec-t); simTime+=d;
+      for(const a of agents) updateAgent(a,d);
+      if(simTime>pulseAt){ pulseAt=simTime+3; slowPulse(); }
+      t+=d;
+    }
+  },
+  save:()=>saveGame(), load:()=>loadGame(), serialize:()=>serializeGame(),
+  get agents(){return agents;}, get houses(){return houses;}, get lineage(){return lineage;},
+  get recipes(){return (typeof RECIPES!=="undefined")?RECIPES:null;},
+  day, tod, setSpeed(s){ speed=s; },
+};
+
 /* ============================== Claude minds (sample) ============================== */
 let sampleFn=null, sampleGone=false, askCtl=null;
 (async ()=>{
@@ -1873,15 +2427,21 @@ function personaPrompt(a){
   const friends=rels.filter(x=>x.r.aff>1.5).sort((p,q)=>q.r.aff-p.r.aff).slice(0,4).map(x=>x.o.name);
   const rival=rels.find(x=>x.r.aff<-1);
   const h=homeOf(a);
+  const skl=Object.entries(a.skills||{}).sort((p,q)=>q[1]-p[1]).slice(0,2)
+    .map(([d,v])=>`${d} (${v>0.8?"a true master":v>0.5?"skilled":v>0.25?"learning":"a novice"})`).join(", ");
+  const dishes=(a.knows||[]).map(id=>RECIPES[id]?.name).filter(Boolean).slice(0,3).join(", ");
+  let drawn=null,dv=0.58;
+  if(!a.partner&&isAdult(a)&&!isElder(a)) for(const [id] of a.rel){ const o=byId(id); if(o&&!o.partner&&o!==a){ const v=attractionScore(a,o); if(v>dv){dv=v;drawn=o;} } }
   return `You are roleplaying ${a.name}, a villager in Emberhollow, a small self-running town beside a river. Stay in character; first person; 1–3 short sentences per reply; never mention being an AI or a simulation.
 ${A?`You are ${A.name} of this town — ${A.essence}.`:""} ${B?`Your story: ${B.backstory}`:""}
 How you speak — obey these strictly: ${B?B.voice.join("; "):"warm, a little rustic"}.
 You are a ${stageOf(a)}, ${ageOf(a)} days old; ${topTraits(a).join(" and ")}; you love ${a.likes.join(", ")}.${B?` You hold dear: ${B.values.join(" and ")}. A private fear (only mention if it truly fits): ${B.fear}. A habit of yours: ${B.quirk}.`:""}
+${B&&B.goal?`Your current hope: ${B.goal.text}.`:""} You are ${wealthWord(a)}${a.career?`, working as a ${a.career.job}`:""}.${skl?` Your craft: ${skl}.`:""}${dishes?` Dishes you know the way of: ${dishes}.`:""}
 ${B?`You have a secret: ${B.secret} — you NEVER volunteer it; deflect gently unless this person has clearly earned deep trust across the conversation.`:""}
 Home: ${h ? (h.stage==="done"?"your finished cottage "+describeSpot(h.x,h.y):"a half-built cottage you're still raising") : "none yet; you sleep under the stars"}.
-${a.partner?`Your partner is ${byId(a.partner)?.name||"gone now"}. `:""}${friends.length?`Friends: ${friends.join(", ")}. `:""}${rival?`You and ${rival.o.name} rub each other the wrong way. `:""}
+${a.partner?`Your partner is ${byId(a.partner)?.name||"gone now"}. `:""}${friends.length?`Friends: ${friends.join(", ")}. `:""}${rival?`You and ${rival.o.name} rub each other the wrong way. `:""}${drawn?`Lately you find your eyes following ${drawn.name}, though you'd not say it plainly. `:""}
 Your real memories from this life: ${a.memories.slice(-5).join(" | ")||"the founding of the town"}.
-Right now you are ${a.inside?"asleep at home (answer drowsily)":a.thought}. It is ${todName()} on day ${day()}.`;
+Right now you are ${a.inside?(a.task&&a.task.type!=="sleep"?"busy indoors at home":"asleep at home (answer drowsily)"):a.thought}. It is ${todName()} on day ${day()}.`;
 }
 function renderChatLog(a){
   const log=document.getElementById('chatlog'); if(!log) return;
@@ -1948,7 +2508,7 @@ ${ev}`,
 });
 
 /* ============================== main loop ============================== */
-let last=performance.now(), uiAt=0;
+let last=performance.now(), uiAt=0, autoSaveAt=performance.now()+60000;
 function frame(now){
   let dt=Math.min((now-last)/1000, 0.06); last=now;
   const sdt=dt*speed;
@@ -1972,6 +2532,7 @@ function frame(now){
     document.getElementById('pop').textContent=agents.length;
     const hc=document.getElementById('hcount'); if(hc) hc.textContent=houses.filter(h=>h.stage==="done"&&!h.kind).length;
   }
+  if(now>autoSaveAt){ autoSaveAt=now+60000; if(speed>0) saveGame(); }   // quiet minute-wise auto-save
   draw();
   requestAnimationFrame(frame);
 }
