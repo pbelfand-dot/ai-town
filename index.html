@@ -2089,12 +2089,17 @@ function drawHouse(h,night){
   }
   // tier marks (§7): dormer at 2, stone footing + gilt door trim at 3; scaffold cue mid-upgrade
   if((h.tier||1)>=2){
-    ctx.fillStyle=st.roof; ctx.fillRect(px+6,py-1,8,7);
-    ctx.fillStyle="rgba(0,0,0,.2)"; ctx.fillRect(px+6,py-1,8,2);
-    ctx.fillStyle= night>0 ? "#f0c060" : "#20323e"; ctx.fillRect(px+8,py+2,4,3);
+    // dormer sits ON the roof plane — x depends on the roof silhouette
+    const dmx = st.roofShape==="round" ? px+6 : st.roofShape==="gable" ? px+10 : px+24;
+    ctx.fillStyle=st.roof; ctx.fillRect(dmx,py-1,8,7);
+    ctx.fillStyle="rgba(0,0,0,.2)"; ctx.fillRect(dmx,py-1,8,2);
+    if(season===3){ ctx.fillStyle="#e6ecee"; ctx.fillRect(dmx,py-2,8,1); }
+    ctx.fillStyle= night>0 ? "#f0c060" : "#20323e"; ctx.fillRect(dmx+2,py+2,4,3);
   }
   if((h.tier||1)>=3){
-    ctx.fillStyle="#8d8578"; ctx.fillRect(px+1,py+TILE*3-5,wpx-2,2);          // stone footing
+    ctx.fillStyle="#8d8578";                                                  // stone footing, skipping the door
+    ctx.fillRect(px+1,py+TILE*3-5,TILE+2,2);
+    ctx.fillRect(px+TILE+13,py+TILE*3-5,wpx-TILE-14,2);
     ctx.fillStyle="#d8a24a"; ctx.fillRect(px+TILE+3,py+TILE*2-2,10,1);        // gilt lintel
   }
   if(h.upg){
@@ -2483,7 +2488,7 @@ function drawCommunalInterior(b){
   } else if(b.kind==="school"){
     p.fillStyle="#2c3a30"; p.fillRect(64,10,110,34);                 // slate board
     p.fillStyle="#ece5d3"; p.fillRect(74,20,26,2); p.fillRect(74,26,40,2); p.fillRect(74,32,18,2);
-    p.fillStyle="#5a4026"; for(let r=0;r<2;r++) for(let c=0;c<3;c++) p.fillRect(30+c*66,68+r*36,40,14);  // desks
+    p.fillStyle="#5a4026"; for(let r=0;r<2;r++) for(let c=0;c<3;c++) p.fillRect(30+c*66,68+r*26,40,14);  // desks match occupant rows
     p.fillStyle="#8a6a3a"; p.fillRect(104,48,30,12);                 // teacher's table
   } else {
     for(let i=0;i<3;i++){
