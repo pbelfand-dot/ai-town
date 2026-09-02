@@ -10,7 +10,8 @@ north star; `DEVELOPMENT_PLAN.md` for current state and roadmap.
   published as a Claude Artifact (same URL every republish), so: no build step,
   no external libraries, no external assets; fonts from Google Fonts only.
   The file is authored artifact-style (no `<html>/<head>/<body>` wrapper).
-- Canvas 2D, tile world (64×44, TILE=16), offscreen ground layer redrawn only
+- Canvas 2D, tile world (96×64, TILE=16; `RIVER_X`/`PLAZA`/`BRIDGE_YS` are the
+  geography constants — never hard-code coordinates), offscreen ground layer redrawn only
   when `groundDirty`. Sim state lives in module globals (`agents`, `houses`,
   `lineage`, `RECIPES`…). Time is sim-clocked (`simTime`, `DAY=75s`, 12-day
   seasons); rendering uses real dt (`drawDt`).

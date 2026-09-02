@@ -8,6 +8,33 @@ specialist agents (design-director + design-critic, sim-ai-engineer,
 character-brain-keeper, town-code-reviewer) defined in `.claude/agents/`.
 See `COMMAND_CENTER.md` for the org chart and working agreement.
 
+## Round 7 (The Wider Valley — roads, architects & new life)
+
+- **Smarter feet**: pathfinding rebuilt on a binary-heap A* that walks all
+  8 directions (never cutting a blocked corner) and treats well-trodden
+  ground as *cheaper* — so the footpaths people wear become the roads
+  people prefer, and desire paths turn into real lanes with no planner.
+  Walkers also re-route mid-stride when the world changes under them.
+- **An eye for design**: villagers with a knack for art and architecture
+  (`artistry` + building craft + precision) draw finer houses. The best
+  eye in town gets asked for plans, is paid for them, and is credited in
+  the chronicle, the house deed, and the inspector. Quality shows on the
+  facade — trim lines, shaped door heads, a gilt gable diamond and porch
+  posts on true masterworks — and a well-designed home is a quiet daily
+  joy to its owners.
+- **A valley 2.25× wider** (96×64 tiles): a longer river with a second
+  southern span, twice the groves, a far bank to settle. Old saves are
+  carried across intact — the town keeps its exact coordinates and the
+  newly revealed land grows in around it (save schema **v5**, migrated).
+- **Pregnancy (§13)**: children are no longer instant. Couples *conceive*,
+  then carry for several days — expecting mothers walk slower, eat for
+  two, show in the sprite and the inspector ("expecting, due ~day N"),
+  and speak of it in interviews. Births come when they come, even if the
+  other parent didn't live to see the day.
+- Strolls now stay local — a wider valley must not mean hiking to its far
+  corner to hum. Suite grown to **18/18** (8-direction path legality,
+  pregnancy-to-term, and the v4→v5 valley-widening migration).
+
 ## Round 5 (Homes with History & the Schoolhouse — phases 12 & 13)
 
 - **Housing evolves (§7)**: cottages upgrade to improved cottages and

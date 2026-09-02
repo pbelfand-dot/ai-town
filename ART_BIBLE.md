@@ -5,7 +5,8 @@ shipped code. Change these deliberately or not at all; design-critic enforces
 them at 100% game scale (§33).
 
 ## Scale & grid
-- **Base tile: 16px** (`TILE=16`), world 64×44 tiles.
+- **Base tile: 16px** (`TILE=16`), world 96×64 tiles (the geography constants
+  `RIVER_X`/`PLAZA`/`BRIDGE_YS` are the only source of coordinates).
 - Villager sprite: ~10px wide × ~17px tall footprint (8×7 body, r=4 head,
   3px hair/hat band, 2×3 legs), drawn about a center origin; children scale
   0.62→1.0 by age. Houses 3×3 tiles; communal halls 4×3 with taller ridge.
@@ -57,7 +58,8 @@ chronicle rows. Semantic state colors stay separate from the brass accent.
 
 ## Clothing layers (§8)
 Looks are composed at draw time in `drawAgent`, never baked into sprites.
-Layer order: legs → body (+`broad` width for str>0.7) → hem shade →
+Layer order: legs → body (+`broad` width for str>0.7; +1px-per-side lower
+torso in the same body color while `pregnant`) → hem shade →
 clothing layer (workwear apron/smock from `WORK_LOOK`, or festival sash at
 complementary hue `(hue+180)%360`) → arms → head → hair/hat (+unkempt
 strands when groom<0.3). Workwear colors are muted trade-mnemonics

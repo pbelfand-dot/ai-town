@@ -195,7 +195,11 @@ variety. LOD last, after systems stabilize.
 | 17 | LLM decision routing | ✅ foundational: routing architecture live (utility AI for ALL sim; model calls only viewer-triggered high-value moments) with pluggable backends — Claude in the viewer, local Ollama on a local file, none otherwise |
 
 **The Master Directive's 17-phase roadmap is complete at foundational depth**
-(2026-09-02, 15/15 acceptance tests). Every phase now exists as a real,
+(2026-09-02, 18/18 acceptance tests). Round 7 deepened the base: heap-based
+8-direction A* whose wear-aware costs turn desire paths into preferred roads;
+architect villagers (design flair → house quality/designer credit/payment);
+the valley widened to 96×64 (save v5 migrates old worlds in intact); and
+pregnancy — conception, a carried term with visible effects, then birth. Every phase now exists as a real,
 interacting system; deepening continues per the medium/long-term lists above
 (multi-good economy, clothing fashion cycles, protests & varied government
 forms, tech beyond writing, true LOD, richer LLM routing).

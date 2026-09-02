@@ -217,7 +217,72 @@ const snap = p => p.evaluate(`(${function () {
     writ.skip ? 'skip' : (writ.writing && writ.book.length >= 1),
     writ.skip ? 'no room for a school' : `invented by ${writ.by}; book: ${writ.book.join(',')}`);
 
-  // ── 13. No page errors across the whole run ──
+  // ── 13. Pathfinding: 8 directions, every step legal (no corner cutting) ──
+  const path = await a.evaluate(`(${function () {
+    const eh = window.__eh;
+    // find a clear 7×7 patch of open ground
+    let s = null;
+    outer: for (let y = 2; y < eh.world.h - 10; y++) for (let x = 2; x < eh.world.w - 10; x++) {
+      let clear = true;
+      for (let dy = 0; dy <= 6 && clear; dy++) for (let dx = 0; dx <= 6; dx++) if (!eh.world.walkable(x + dx, y + dy)) { clear = false; break; }
+      if (clear) { s = [x, y]; break outer; }
+    }
+    if (!s) return { skip: true };
+    const p = eh.pathfind(s[0], s[1], s[0] + 6, s[1] + 6);
+    if (!p) return { skip: false, ok: false, why: 'no path found' };
+    const diagonal = p.length <= 8;               // 8-dir walks ~6 diagonal steps, not 12 manhattan
+    let legal = true, [cx, cy] = s;
+    for (const [nx, ny] of p) {
+      if (Math.abs(nx - cx) > 1 || Math.abs(ny - cy) > 1 || !eh.world.walkable(nx, ny)) legal = false;
+      cx = nx; cy = ny;
+    }
+    return { skip: false, ok: diagonal && legal, len: p.length };
+  }})()`);
+  report('pathfinding: diagonal, legal steps only', path.skip ? 'skip' : path.ok,
+    path.skip ? 'no clear 7×7 patch on this map' : `(6,6) offset crossed in ${path.len} steps`);
+
+  // ── 14. Pregnancy: expecting → a birth days later, parents recorded (§13) ──
+  const preg = await a.evaluate(`(${function () {
+    const eh = window.__eh;
+    const adults = eh.agents.filter(x => x.alive && (eh.day() - x.birthDay) >= 6);
+    if (adults.length < 2) return { skip: true };
+    const [mom, dad] = adults;
+    mom.pregnant = { by: dad.id, byName: dad.name, due: eh.day() };   // term is up today
+    eh.step(4);                                                       // one slow pulse
+    const kid = eh.agents.find(x => x.parents && x.parents.includes(mom.id) && x.parents.includes(dad.id)
+      && x.birthDay >= eh.day() - 1);
+    return { skip: false, born: !!kid, cleared: !mom.pregnant, name: kid && kid.name };
+  }})()`);
+  report('pregnancy carries to term, then a birth', preg.skip ? 'skip' : (preg.born && preg.cleared),
+    preg.skip ? 'not enough adults' : preg.born ? `welcome, ${preg.name}` : 'no child arrived');
+
+  // ── 15. A v4 save migrates into the wider 96×64 valley intact (§36) ──
+  const wide = await a.evaluate(`(${function () {
+    const eh = window.__eh;
+    const d = JSON.parse(JSON.stringify(eh.serialize()));
+    const OW = 64, OH = 44;                          // shrink back to the old world
+    const g = [], w = [];
+    for (let y = 0; y < OH; y++) for (let x = 0; x < OW; x++) { g.push(d.ground[y * d.world.w + x]); w.push(d.wear[y * d.world.w + x]); }
+    d.ground = g; d.wear = w;
+    delete d.world; d.v = 4;
+    for (const s of d.agents) delete s.pregnant;
+    for (const h of d.houses) { delete h.designQ; delete h.designer; }
+    d.trees = d.trees.filter(t => t.x < OW && t.y < OH);
+    d.bushes = d.bushes.filter(b => b.x < OW && b.y < OH);
+    const m = eh.migrate(d);
+    const sized = m.ground.length === eh.world.w * eh.world.h;
+    let intact = true;                               // old row 10 survives verbatim
+    for (let x = 0; x < OW; x++) if (m.ground[10 * eh.world.w + x] !== g[10 * OW + x]) intact = false;
+    const cy = 54, cx = eh.world.riverX(cy);         // river flows through the new south
+    const river = m.ground[cy * eh.world.w + cx] === 1;
+    const grove = m.trees.some(t => t.x >= OW || t.y >= OH);
+    const pregOK = m.agents.every(s => s.pregnant === null);
+    return { v: m.v, sized, intact, river, grove, pregOK };
+  }})()`);
+  report('v4 save widens into the 96×64 valley', wide.v === 5 && wide.sized && wide.intact && wide.river && wide.grove && wide.pregOK,
+    `v${wide.v}, old town intact:${wide.intact}, south river:${wide.river}, new groves:${wide.grove}`);
+
+  // ── 16. No page errors across the whole run ──
   report('zero runtime errors', a._errors.length === 0, a._errors.slice(0, 3).join(' | ') || 'clean console');
   await a.close();
 }
