@@ -123,7 +123,7 @@
     <span class="pill" id="clock">Day 1 &middot; morning</span>
     <span class="pill">souls <b id="pop">0</b></span>
     <span class="pill">cottages <b id="hcount">0</b></span>
-    <span class="pill" id="civicPill" hidden>&#9878; <b id="civicName"></b></span>
+    <span class="pill" id="civicPill" hidden>&#9878; Speaker <b id="civicName"></b></span>
     <span id="speedbox">
       <button data-s="0" title="pause">&#10073;&#10073;</button><button data-s="1" class="on">1&times;</button><button data-s="4">4&times;</button><button data-s="12">12&times;</button>
     </span>
@@ -3082,7 +3082,7 @@ function frame(now){
     document.getElementById('pop').textContent=agents.length;
     const hc=document.getElementById('hcount'); if(hc) hc.textContent=houses.filter(h=>h.stage==="done"&&!h.kind).length;
     const cp=document.getElementById('civicPill'), cn=document.getElementById('civicName');
-    if(cp&&cn){ const ld=civic.leaderId?byId(civic.leaderId):null; cp.hidden=!ld; if(ld) cn.textContent="Speaker "+ld.name; }
+    if(cp&&cn){ const ld=civic.leaderId?byId(civic.leaderId):null; cp.hidden=!ld; if(ld) cn.textContent=ld.name; }
   }
   if(now>autoSaveAt){ autoSaveAt=now+60000; if(speed>0) saveGame(); }   // quiet minute-wise auto-save
   draw();
