@@ -1009,7 +1009,7 @@ function startWorks(kind){
   town.works={kind, progress:0, woodNeed:kind==="fountain"?12:16, woodHave:0};
   const txt={
     fountain:"Talk at the well has turned to stone: Emberhollow will raise a FOUNTAIN where the old well stands and pave a true square around it. Timber for the falsework first — every able hand is welcome.",
-    paving:"The town has voted itself a future: the lanes will be laid in flagstone, the bridges rebuilt in dressed stone, the square made grand with lamps. The greatest work Emberhollow has ever begun.",
+    paving:"The town has voted itself a future: the lanes will be laid in flagstone, the square made grand, and lamps raised against the dark — on the streets and the stone bridges both. The greatest work Emberhollow has ever begun.",
   };
   chron(txt[kind], true);
   toast(kind==="fountain" ? "⚒ The town is building a stone fountain" : "⚒ The town is paving its streets in stone");
@@ -1020,11 +1020,11 @@ function finishWorks(a){
   if(kind==="fountain"){
     town.era=2; town.eraAt=day(); groundDirty=true;
     solid[K(PLAZA.x|0, PLAZA.y|0)]=1;                     // the basin claims the well's tile
-    chron("The FOUNTAIN runs! Clear river water over dressed stone, a paved square around it, stalls at its edge — Emberhollow is a STONE TOWN now. Houses raised from this day are raised in stone.", true);
+    chron("The FOUNTAIN runs! Clear river water over dressed stone, a paved square around it, stalls at its edge, the bridges re-faced to match — Emberhollow is a STONE TOWN now. Houses raised from this day are raised in stone.", true);
     toast("✦ The Stone Age of Emberhollow — the fountain runs");
   } else if(kind==="paving"){
     town.era=3; town.eraAt=day(); groundDirty=true;
-    chron("The last flagstone is tapped into place. Paved streets, stone bridges, lamps against the dark, a grand square — call it what it is: a CITY on the river. The founders slept in huts here.", true);
+    chron("The last flagstone is tapped into place. Paved streets, lamplit bridges, a grand square — call it what it is: a CITY on the river. The founders slept in huts here.", true);
     toast("✦ Emberhollow is a city now");
   }
   if(a){ remember(a,`I set the last stone of the ${kind==="fountain"?"town fountain":"great paving"}.`); gainSkill(a,"building",0.05); }
@@ -1271,7 +1271,7 @@ function chooseTask(a){
   }
   // the age-works (§40): fountains and paving rise from hands, not from time
   if(town.works && isAdult(a) && a.traits.industry>.4 && rnd()<.5){
-    const wp=[(PLAZA.x|0)+2+ri(2), (PLAZA.y|0)-1+ri(3)];
+    const wp=[(PLAZA.x|0)-4+ri(2), (PLAZA.y|0)-1+ri(3)];   // the works yard, west of the square
     if(a.carrying>0){ a.thought=`hauling timber to the ${town.works.kind==="fountain"?"fountain works":"paving works"}`; return goto(a,wp[0],wp[1],{type:"deliverWorks"}); }
     if(town.works.woodHave < town.works.woodNeed){
       const t=nearestTree(a);
@@ -1774,10 +1774,10 @@ function updateAgent(a, dt){
       hu.upg.progress=clamp(hu.upg.progress + dt*0.05*(0.4+a.traits.industry*0.5+skillOf(a,"building")*0.9), 0, 1);
       gainSkill(a,"building",dt*0.004); a.phys=(a.phys||0)+dt*0.6;
       if(hu.upg.progress>=1){
-        hu.tier=Math.min(3,(hu.tier||1)+1);
-        const matWas=hu.mat??1;
+        const reclad=!!hu.upg.reclad, matWas=hu.mat??1;
+        if(!reclad) hu.tier=Math.min(3,(hu.tier||1)+1);   // a re-clad changes the coat, not the size
         hu.mat=Math.max(matWas, eraMat());             // a rebuild uses the material of the age
-        hu.designQ=clamp((hu.designQ??0.4)+0.1,0,1);   // a rebuild sharpens the lines too
+        if(!reclad) hu.designQ=clamp((hu.designQ??0.4)+0.1,0,1);   // a full rebuild sharpens the lines too
         // (the household already paid up front when the work began)
         const owner=byId(hu.owners[0]);
         if(hu.upg.builder && hu.upg.builder!==(owner&&owner.id)){
@@ -1786,11 +1786,14 @@ function updateAgent(a, dt){
         }
         hu.upg=null;
         hu.interior=furnish(hu);   // an upgraded house gains furniture, keeps its heirlooms
-        const matWord=["","","in dressed stone","in city brick and slate"][hu.mat]||"";
-        houseNote(hu, `Rebuilt ${hu.mat>matWas?matWord:"finer"} — ${hu.tier===2?"an improved cottage":"a fine townhouse"} — day ${day()}.`);
-        chron(hu.mat>matWas
-          ? `${owner?owner.name+"'s":"A"} cottage ${describeSpot(hu.x,hu.y)} was rebuilt ${matWord} — the age of timber ends one roof at a time.`
-          : `${owner?owner.name+"'s":"A"} cottage ${describeSpot(hu.x,hu.y)} was rebuilt finer — ${hu.tier===2?"a proper improved cottage now":"a fine townhouse, the envy of the lane"}.`, true);
+        const matWord=["","in good timber","in dressed stone","in city brick and slate"][hu.mat]||"";
+        if(hu.mat>matWas){
+          houseNote(hu, `Re-clad ${matWord}, day ${day()}.`);
+          chron(`${owner?owner.name+"'s":"A"} cottage ${describeSpot(hu.x,hu.y)} was rebuilt ${matWord}${hu.mat>=2?" — the age of timber ends one roof at a time":""}.`, true);
+        } else {
+          houseNote(hu, `Rebuilt finer — ${hu.tier===2?"an improved cottage":"a fine townhouse"} — day ${day()}.`);
+          chron(`${owner?owner.name+"'s":"A"} cottage ${describeSpot(hu.x,hu.y)} was rebuilt finer — ${hu.tier===2?"a proper improved cottage now":"a fine townhouse, the envy of the lane"}.`, true);
+        }
         a.task=null;
       }
       break;
@@ -1959,16 +1962,22 @@ function slowPulse(){
     // home improvement (§7): prosperity turns into better walls — via skill or a hired builder
     const hh=homeOf(a);
     const matBehind = hh && (hh.mat??1)<eraMat();       // the town's age has outrun this roof
+    // two distinct projects: a full tier upgrade (expensive), or a plain
+    // re-clad in the age's material (cheap, and it does NOT raise the tier)
+    const wantsTier = hh && (hh.tier||1)<3 && (a.wealth||0)>=(hh.tier||1)*10 && rnd()<0.04;
+    const wantsClad = hh && !wantsTier && matBehind && (a.wealth||0)>=5 && rnd()<0.06;
     if(hh && hh.stage==="done" && !hh.kind && !hh.upg && hh.owners[0]===a.id
-       && ( ((hh.tier||1)<3 && (a.wealth||0)>=(hh.tier||1)*10 && rnd()<0.04)
-         || (matBehind && (a.wealth||0)>=5 && rnd()<0.06) )){
+       && (wantsTier || wantsClad)){
       const canSelf = skillOf(a,"building")>0.3 || (a.partner&&skillOf(byId(a.partner)||{},"building")>0.3);
       const builder = canSelf ? null
         : agents.find(o=>o!==a&&o.alive&&isAdult(o)&&o.career&&o.career.domain==="building"&&skillOf(o,"building")>0.3);
       if(canSelf || builder){
-        hh.upg={progress:0, wood:0, need:6, cost:(hh.tier||1)*6, builder:builder?builder.id:null};
+        hh.upg={progress:0, wood:0, need: wantsClad?4:6, cost: wantsClad?4:(hh.tier||1)*6,
+                builder:builder?builder.id:null, reclad: wantsClad};
         a.wealth=Math.max(0,(a.wealth||0)-hh.upg.cost);   // paid up front — no dodging the bill by dying
-        chron(builder
+        chron(wantsClad
+          ? `${a.name} started re-facing the family cottage in the new fashion of the age${builder?`, with ${builder.name}'s hired hands`:""}.`
+          : builder
           ? `${a.name} hired ${builder.name} to rebuild the cottage finer — coin for craft.`
           : `${a.name} started rebuilding the family cottage with their own hands.`);
       }
@@ -2254,6 +2263,18 @@ function draw(){
     else drawAgent(sp.o);
   }
 
+  // the age-works yard: falsework, the timber tally, and honest progress
+  if(town.works){
+    const sx=Math.round((PLAZA.x-4.2)*TILE), sy=Math.round((PLAZA.y-1.4)*TILE);
+    ctx.strokeStyle="#8a734a"; ctx.lineWidth=1.5;
+    ctx.strokeRect(sx,sy,15,13);
+    ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(sx+15,sy+13); ctx.stroke();
+    ctx.fillStyle="#8a6a3a";
+    for(let i=0;i<Math.min(town.works.woodHave,8);i++) ctx.fillRect(sx-8, sy+11-i*3, 6,2);
+    ctx.fillStyle="#8d8578"; ctx.fillRect(sx+3,sy+15,4,3); ctx.fillRect(sx+9,sy+16,4,2);   // dressed stones waiting
+    ctx.fillStyle="#d8a24a"; ctx.fillRect(sx, sy-4, Math.round(15*town.works.progress), 2);
+  }
+
   // the fountain plays (era 2+): a few cosmetic droplets over the basin
   if(town.era>=2 && !REDUCED_MOTION){
     ctx.fillStyle="rgba(214,236,244,.7)";
@@ -2481,6 +2502,13 @@ function drawCommunalFurnWorld(b,px,py,wpx){
     for(let r=0;r<2;r++) for(let c=0;c<3;c++) ctx.fillRect(px+8+c*14, py+18+r*10, 7,3);        // pupils' desks
   }
 }
+function drawUpgCue(h,px,py,wpx){
+  if(!h.upg) return;                                       // scaffold + timber tally, every render mode
+  ctx.strokeStyle="#8a734a"; ctx.lineWidth=1.5;
+  ctx.strokeRect(px+wpx-6,py+2,7,TILE*3-6);
+  ctx.fillStyle="#8a6a3a";
+  for(let i=0;i<Math.min(h.upg.wood,6);i++) ctx.fillRect(px+wpx+2, py+TILE*3-4-i*3, 5,2);
+}
 function drawOpenRoof(h,night){
   const wT=h.w||3;
   const px=h.x*TILE, py=h.y*TILE, wpx=TILE*wT, hpx=TILE*3;
@@ -2503,6 +2531,7 @@ function drawOpenRoof(h,night){
     if(act==="sleep"){ ctx.fillStyle=hsl(o.hue,42,48); ctx.fillRect(fx+2,fy+1,4,2); ctx.fillStyle=o.skin; ctx.fillRect(fx+1,fy+1,2,2); }
     else { ctx.fillStyle=hsl(o.hue,42,48); ctx.fillRect(fx+1,fy+3,3,3); ctx.fillStyle=o.skin; ctx.fillRect(fx+1,fy+1,3,2); ctx.fillStyle=isElder(o)?"#d8d3c8":o.hair; ctx.fillRect(fx+1,fy,3,1); }
   }
+  drawUpgCue(h,px,py,wpx);
 }
 function drawHouse(h,night){
   const px=h.x*TILE, py=h.y*TILE, wpx=TILE*3;
@@ -2540,6 +2569,7 @@ function drawHouse(h,night){
       const t=simTime*2;
       for(let i=0;i<2;i++){ const yy=py-2-i*5-(t%5); ctx.beginPath(); ctx.arc(px+wpx/2+Math.sin(t+i)*2, yy, 2+i, 0, 7); ctx.fill(); }
     }
+    drawUpgCue(h,px,py,wpx);
     return;
   }
   let wallC=st.wall, wallD=st.wallDark, roofC=st.roof;
@@ -2657,12 +2687,7 @@ function drawHouse(h,night){
   }
   // gilt lintel last so the shaped door head can never erase it
   if((h.tier||1)>=3){ ctx.fillStyle="#d8a24a"; ctx.fillRect(px+TILE+3,py+TILE*2-2,10,1); }
-  if(h.upg){
-    ctx.strokeStyle="#8a734a"; ctx.lineWidth=1.5;
-    ctx.strokeRect(px+wpx-6,py+2,7,TILE*3-6);                                 // side scaffold
-    ctx.fillStyle="#8a6a3a";
-    for(let i=0;i<Math.min(h.upg.wood,6);i++) ctx.fillRect(px+wpx+2, py+TILE*3-4-i*3, 5,2);
-  }
+  drawUpgCue(h,px,py,wpx);
   // lantern by the door (glow added in draw()'s light pass)
   ctx.fillStyle="#4a3f2c"; ctx.fillRect(px+TILE+14,py+TILE*2+3,1,7);
   ctx.fillStyle="#2f2a1e"; ctx.fillRect(px+TILE+13,py+TILE*2,3,4);
