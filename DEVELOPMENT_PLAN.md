@@ -199,7 +199,11 @@ variety. LOD last, after systems stabilize.
 8-direction A* whose wear-aware costs turn desire paths into preferred roads;
 architect villagers (design flair → house quality/designer credit/payment);
 the valley widened to 96×64 (save v5 migrates old worlds in intact); and
-pregnancy — conception, a carried term with visible effects, then birth. Every phase now exists as a real,
+pregnancy — conception, a carried term with visible effects, then birth.
+Round 8 added the AGES (save v6): camp→timber→stone→city earned by real
+conditions and physically built (fountain, paving) by villager labor; house
+materials (h.mat), era-dressed roads/bridges/plaza with an open-air
+marketplace, and the open-roof zoom view (interiors drawn on the map). Every phase now exists as a real,
 interacting system; deepening continues per the medium/long-term lists above
 (multi-good economy, clothing fashion cycles, protests & varied government
 forms, tech beyond writing, true LOD, richer LLM routing).

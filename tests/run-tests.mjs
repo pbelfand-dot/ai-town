@@ -279,10 +279,70 @@ const snap = p => p.evaluate(`(${function () {
     const pregOK = m.agents.every(s => s.pregnant === null);
     return { v: m.v, sized, intact, river, grove, pregOK };
   }})()`);
-  report('v4 save widens into the 96×64 valley', wide.v === 5 && wide.sized && wide.intact && wide.river && wide.grove && wide.pregOK,
+  report('v4 save widens into the 96×64 valley', wide.v === 6 && wide.sized && wide.intact && wide.river && wide.grove && wide.pregOK,
     `v${wide.v}, old town intact:${wide.intact}, south river:${wide.river}, new groves:${wide.grove}`);
 
-  // ── 16. No page errors across the whole run ──
+  // ── 16. The ages of the town: huts first; the fountain crossing is earned & built (§40) ──
+  {
+    const fresh = await browser.newPage();
+    fresh.on('pageerror', () => {});
+    await fresh.goto(URL);
+    await fresh.waitForFunction('window.__eh');
+    const hut = await fresh.evaluate(`(${function () {
+      const eh = window.__eh;
+      const era0 = eh.town.era;                       // a brand-new world is a river camp
+      eh.setSpeed(0);
+      let firstMat = null;
+      for (let i = 0; i < 40 && firstMat === null; i++) {
+        eh.step(15);
+        const done = eh.houses.find(h => !h.kind && h.stage === 'done');
+        if (done) firstMat = done.mat;
+      }
+      return { era0, firstMat };
+    }})()`);
+    await fresh.close();
+    report('a new town starts as a camp of huts', hut.era0 === 0 && hut.firstMat === 0,
+      `fresh era ${hut.era0}, first finished home material ${hut.firstMat}`);
+  }
+  const era = await a.evaluate(`(${function () {
+    const eh = window.__eh;
+    // this page has simulated for many days: the timber age should have arrived on its own
+    const timber = eh.town.era >= 1;
+    // meet the stone-age conditions for real, then let the daily check see them
+    while (eh.agents.filter(x => x.alive).length < 14) makeAgent({ birthDay: -20 });
+    let mk = eh.houses.find(h => h.kind === 'market');
+    if (!mk) { mk = startCommunal('market'); }
+    if (mk) mk.stage = 'done';
+    eh.agents[0].skills.building = 0.85;
+    for (const x of eh.agents) x.wealth = Math.max(x.wealth || 0, 6);
+    eh.town.eraAt = eh.day() - 25;
+    for (let i = 0; i < 6 && !eh.town.works; i++) eh.step(80);   // cross day boundaries
+    const worksStarted = !!eh.town.works && eh.town.works.kind === 'fountain';
+    if (eh.town.works) eh.finishWorks();                          // completion hook (labor is exercised live)
+    const stone = eh.town.era === 2;
+    const fountainSolid = !eh.world.walkable(31, 21);
+    // a house begun now is begun in stone
+    const spot = (() => { const o = eh.agents.find(x => x.alive && !x.home && (eh.day() - x.birthDay) >= 6); return o && startHouse(o); })();
+    const newMat = spot ? spot.mat : null;
+    return { timber, worksStarted, stone, fountainSolid, newMat, skippedHouse: !spot };
+  }})()`);
+  report('the stone age is earned, built, and changes what rises',
+    era.timber && era.worksStarted && era.stone && era.fountainSolid && (era.skippedHouse || era.newMat === 2),
+    `works:${era.worksStarted} era2:${era.stone} fountain solid:${era.fountainSolid} new house mat:${era.newMat ?? '(none free)'}`);
+
+  // ── 17. v5 saves gain the ages; the town stays intact (§36) ──
+  const v6 = await a.evaluate(`(${function () {
+    const eh = window.__eh;
+    const d = JSON.parse(JSON.stringify(eh.serialize()));
+    d.v = 5; delete d.town;
+    for (const h of d.houses) delete h.mat;
+    const m = eh.migrate(d);
+    return { v: m.v, era: m.town && m.town.era, mats: m.houses.every(h => typeof h.mat === 'number'), pop: m.agents.length === eh.agents.length };
+  }})()`);
+  report('v5 save migrates: existing towns wake as timber villages', v6.v === 6 && v6.era === 1 && v6.mats && v6.pop,
+    `v${v6.v}, era ${v6.era}, materials filled:${v6.mats}`);
+
+  // ── 18. No page errors across the whole run ──
   report('zero runtime errors', a._errors.length === 0, a._errors.slice(0, 3).join(' | ') || 'clean console');
   await a.close();
 }

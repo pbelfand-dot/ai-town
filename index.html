@@ -186,6 +186,9 @@ const DAY = 75;                 // real seconds per in-town day at 1x
 const RIVER_X = y => Math.round(W*0.5 + Math.sin(y*0.21)*3.2);
 const BRIDGE_YS = [19,20,45,46];             // two crossings: the old bridge and the south span
 const PLAZA = {x:31.5, y:21.5};
+// the four lamp posts of the era-3 square, in world pixels (ground + light pass)
+const SQUARE_LAMPS = () => { const wx=PLAZA.x*TILE, wy=PLAZA.y*TILE, o=TILE*3;
+  return [[wx-o,wy-o],[wx+o,wy-o],[wx-o,wy+o],[wx+o,wy+o]]; };
 const G_GRASS=0, G_WATER=1, G_BRIDGE=2, G_GRAVE=3;
 const ground = new Uint8Array(W*H);
 const solid  = new Uint8Array(W*H);   // 1 = cannot walk
@@ -654,6 +657,7 @@ function startHouse(a){
               woodNeed:10, woodHave:0, style:houseStyleFor(a), interior:null,
               doorX:bx+1, doorY:by+2,
               tier:1, upg:null, history:[`Ground broken by ${a.name}, day ${day()}.`],
+              mat:eraMat(),   // built in the material of the town's age (0 hut, 1 timber, 2 stone, 3 city)
               designQ:quality, designer: designer!==a ? designer.name : null,
               designerId: designer!==a ? designer.id : null };
   if(designer!==a) houseNote(h, `${designer.name} drew the plans.`);
@@ -983,6 +987,44 @@ function passLaw(sp){
 const tech={writing:false, writerName:null};
 const townBook=[];   // recipe ids written down at the school
 
+/* ============================== the ages of Emberhollow (§40) ==============================
+   The town itself grows up: river camp → timber village → stone town → river
+   city. Ages are EARNED — headcount, a master of the building craft, real
+   wealth, institutions — never a timer. And each crossing is physically
+   BUILT: the stone fountain and the flagstone paving rise from villager
+   labor at the square, like the tavern did. Houses remember the age they
+   were raised in (h.mat: 0 hut, 1 timber, 2 stone, 3 city), and the roads
+   and bridges re-dress themselves as the town's age turns. */
+const ERA_NAMES=["a river camp","a timber village","a stone town","a river city"];
+const town={era:0, eraAt:0, checkAt:-1, works:null};   // works: {kind,progress,woodNeed,woodHave}
+const eraMat=()=> town.era===0 ? 0 : Math.min(3,town.era);
+function townWealth(){ let s=0; for(const a of agents) if(a.alive) s+=a.wealth||0; return s; }
+function buildingMaster(){ return agents.some(a=>a.alive&&isAdult(a)&&skillOf(a,"building")>0.7); }
+function startWorks(kind){
+  town.works={kind, progress:0, woodNeed:kind==="fountain"?12:16, woodHave:0};
+  const txt={
+    fountain:"Talk at the well has turned to stone: Emberhollow will raise a FOUNTAIN where the old well stands and pave a true square around it. Timber for the falsework first — every able hand is welcome.",
+    paving:"The town has voted itself a future: the lanes will be laid in flagstone, the bridges rebuilt in dressed stone, the square made grand with lamps. The greatest work Emberhollow has ever begun.",
+  };
+  chron(txt[kind], true);
+  toast(kind==="fountain" ? "⚒ The town is building a stone fountain" : "⚒ The town is paving its streets in stone");
+}
+function finishWorks(a){
+  const kind=town.works&&town.works.kind;
+  town.works=null;
+  if(kind==="fountain"){
+    town.era=2; town.eraAt=day(); groundDirty=true;
+    solid[K(PLAZA.x|0, PLAZA.y|0)]=1;                     // the basin claims the well's tile
+    chron("The FOUNTAIN runs! Clear river water over dressed stone, a paved square around it, stalls at its edge — Emberhollow is a STONE TOWN now. Houses raised from this day are raised in stone.", true);
+    toast("✦ The Stone Age of Emberhollow — the fountain runs");
+  } else if(kind==="paving"){
+    town.era=3; town.eraAt=day(); groundDirty=true;
+    chron("The last flagstone is tapped into place. Paved streets, stone bridges, lamps against the dark, a grand square — call it what it is: a CITY on the river. The founders slept in huts here.", true);
+    toast("✦ Emberhollow is a city now");
+  }
+  if(a){ remember(a,`I set the last stone of the ${kind==="fountain"?"town fountain":"great paving"}.`); gainSkill(a,"building",0.05); }
+}
+
 const FESTS=["the Harvest Fair","River Lantern Night","Founders' Day"];
 let festState={day:0, name:null};
 const festActive=()=> festState.day===day() && tod()>=0.50 && tod()<=0.86;
@@ -1175,7 +1217,11 @@ function chooseTask(a){
   // eat — the market first while it's open, berries otherwise
   if(n.food<.4){
     const m=marketHouse();
-    if(m && marketOpen()){ a.thought="off to the market for something warm"; return goto(a, m.x+ri(4), m.y+3, {type:"buy", t:0}); }
+    if(m && marketOpen()){
+      a.thought="off to the market for something warm";
+      if(town.era>=2 && rnd()<0.5) return goto(a, (PLAZA.x|0)+2+ri(2), (PLAZA.y|0)-2+ri(5), {type:"buy", t:0});
+      return goto(a, m.x+ri(4), m.y+3, {type:"buy", t:0});
+    }
     const b=nearestBush(a);
     if(b){ a.thought="off to pick berries"; return goto(a,b.x,b.y,{type:"forage",bush:b}); }
   }
@@ -1218,6 +1264,15 @@ function chooseTask(a){
       if(t){ a.thought=`cutting timber for the town ${cb.kind}`; return goto(a,t.x,t.y,{type:"chop",tree:t}); }
     } else { a.thought=`raising beams at the ${cb.kind}`; return goto(a,cb.doorX,cb.doorY,{type:"constructComm",b:cb.id}); }
   }
+  // the age-works (§40): fountains and paving rise from hands, not from time
+  if(town.works && isAdult(a) && a.traits.industry>.4 && rnd()<.5){
+    const wp=[(PLAZA.x|0)+2+ri(2), (PLAZA.y|0)-1+ri(3)];
+    if(a.carrying>0){ a.thought=`hauling timber to the ${town.works.kind==="fountain"?"fountain works":"paving works"}`; return goto(a,wp[0],wp[1],{type:"deliverWorks"}); }
+    if(town.works.woodHave < town.works.woodNeed){
+      const t=nearestTree(a);
+      if(t){ a.thought="cutting timber for the town works"; return goto(a,t.x,t.y,{type:"chop",tree:t}); }
+    } else { a.thought=town.works.kind==="fountain"?"setting stones at the new fountain":"laying flagstones on the square"; return goto(a,wp[0],wp[1],{type:"constructWorks"}); }
+  }
   // §11 appearanceInvestment: making oneself presentable costs real morning time
   if((a.groom??0.5)<0.4 && tod()>0.2 && tod()<0.36 && rnd()<0.35){
     const gs = (h&&h.stage==="done") ? [h.doorX,h.doorY]
@@ -1259,6 +1314,8 @@ function chooseTask(a){
       const r=RECIPES[pick(a.knows)]; if(r) ware=r.name;
     }
     a.thought=`setting out ${ware} at the market`;
+    // from the stone age the open-air stalls on the square share the trade
+    if(town.era>=2 && rnd()<0.5) return goto(a, (PLAZA.x|0)+3, (PLAZA.y|0)-2+ri(5), {type:"sell", t:0, ware, job:j.job});
     return goto(a, m.x+ri(4), m.y+3, {type:"sell", t:0, ware, job:j.job});
   }
   // evenings at the tavern
@@ -1713,6 +1770,8 @@ function updateAgent(a, dt){
       gainSkill(a,"building",dt*0.004); a.phys=(a.phys||0)+dt*0.6;
       if(hu.upg.progress>=1){
         hu.tier=Math.min(3,(hu.tier||1)+1);
+        const matWas=hu.mat??1;
+        hu.mat=Math.max(matWas, eraMat());             // a rebuild uses the material of the age
         hu.designQ=clamp((hu.designQ??0.4)+0.1,0,1);   // a rebuild sharpens the lines too
         // (the household already paid up front when the work began)
         const owner=byId(hu.owners[0]);
@@ -1722,10 +1781,27 @@ function updateAgent(a, dt){
         }
         hu.upg=null;
         hu.interior=furnish(hu);   // an upgraded house gains furniture, keeps its heirlooms
-        houseNote(hu, `Rebuilt finer — ${hu.tier===2?"an improved cottage":"a fine townhouse"} — day ${day()}.`);
-        chron(`${owner?owner.name+"'s":"A"} cottage ${describeSpot(hu.x,hu.y)} was rebuilt finer — ${hu.tier===2?"a proper improved cottage now":"a fine townhouse, the envy of the lane"}.`, true);
+        const matWord=["","","in dressed stone","in city brick and slate"][hu.mat]||"";
+        houseNote(hu, `Rebuilt ${hu.mat>matWas?matWord:"finer"} — ${hu.tier===2?"an improved cottage":"a fine townhouse"} — day ${day()}.`);
+        chron(hu.mat>matWas
+          ? `${owner?owner.name+"'s":"A"} cottage ${describeSpot(hu.x,hu.y)} was rebuilt ${matWord} — the age of timber ends one roof at a time.`
+          : `${owner?owner.name+"'s":"A"} cottage ${describeSpot(hu.x,hu.y)} was rebuilt finer — ${hu.tier===2?"a proper improved cottage now":"a fine townhouse, the envy of the lane"}.`, true);
         a.task=null;
       }
+      break;
+    }
+    case "deliverWorks": {
+      if(!town.works){ a.task=null; a.carrying=0; break; }
+      town.works.woodHave+=a.carrying; a.phys=(a.phys||0)+0.5+a.carrying*0.2; a.carrying=0; a.task=null;
+      break;
+    }
+    case "constructWorks": {
+      if(!town.works){ a.task=null; break; }
+      t.t=(t.t||0)+dt;
+      town.works.progress=clamp(town.works.progress + dt*0.035*(0.4+a.traits.industry*0.5+skillOf(a,"building")*0.9), 0, 1);
+      gainSkill(a,"building",dt*0.004); a.phys=(a.phys||0)+dt*0.6;
+      if(rnd()<dt*0.12) say(a,pick(["level it","hold — there","stone by stone"]),2.2);
+      if(town.works.progress>=1){ finishWorks(a); a.task=null; }
       break;
     }
     case "groom": {
@@ -1788,6 +1864,24 @@ function slowPulse(){
     if(failed) communalRetryAt = simTime + DAY;      // crowded map: back off a day, don't rescan every pulse
   }
   if(schoolHouse() && day()!==teacherAt){ teacherAt=day(); pickTeacher(); }
+  // the ages of the town (§40) — checked once a day; each crossing is EARNED
+  if(day()!==town.checkAt){
+    town.checkAt=day();
+    if(town.era===0 && houses.filter(h=>!h.kind&&h.stage==="done").length>=4){
+      town.era=1; town.eraAt=day(); groundDirty=true;
+      chron("Look down the lane: proper timber frames, shingled roofs, glass in the windows. The camp of huts is gone — Emberhollow is a TIMBER VILLAGE now.", true);
+      toast("✦ Emberhollow is a timber village now");
+    }
+    if(town.era===1 && !town.works && living.length>=14 && marketHouse() && buildingMaster()
+       && townWealth()>=60 && day()-town.eraAt>=20){
+      startWorks("fountain");
+    }
+    if(town.era===2 && !town.works && living.length>=24 && civic.form && tech.writing
+       && houses.filter(h=>!h.kind&&(h.mat??1)>=2&&(h.tier||1)>=2).length>=4
+       && day()-town.eraAt>=60){
+      startWorks("paving");
+    }
+  }
   // civic pressure from festering feuds (§22) — checked once a day
   if(day()!==civic.grudgeAt){
     civic.grudgeAt=day();
@@ -1859,8 +1953,10 @@ function slowPulse(){
        && !businesses.some(b=>b.domain===a.career.domain) && rnd()<0.08) foundBusiness(a);
     // home improvement (§7): prosperity turns into better walls — via skill or a hired builder
     const hh=homeOf(a);
-    if(hh && hh.stage==="done" && !hh.kind && !hh.upg && (hh.tier||1)<3
-       && hh.owners[0]===a.id && (a.wealth||0)>=(hh.tier||1)*10 && rnd()<0.04){
+    const matBehind = hh && (hh.mat??1)<eraMat();       // the town's age has outrun this roof
+    if(hh && hh.stage==="done" && !hh.kind && !hh.upg && hh.owners[0]===a.id
+       && ( ((hh.tier||1)<3 && (a.wealth||0)>=(hh.tier||1)*10 && rnd()<0.04)
+         || (matBehind && (a.wealth||0)>=5 && rnd()<0.06) )){
       const canSelf = skillOf(a,"building")>0.3 || (a.partner&&skillOf(byId(a.partner)||{},"building")>0.3);
       const builder = canSelf ? null
         : agents.find(o=>o!==a&&o.alive&&isAdult(o)&&o.career&&o.career.domain==="building"&&skillOf(o,"building")>0.3);
@@ -2000,18 +2096,31 @@ function drawGround(){
       gctx.fillStyle="#2b4d63"; gctx.fillRect(px,py,TILE,TILE);
       gctx.fillStyle=winter?"#9db8c4":"#3a6a84"; if((x+y)%3===0) gctx.fillRect(px+3,py+7,7,2);
     } else if(g===G_BRIDGE){
-      gctx.fillStyle="#6b4f2e"; gctx.fillRect(px,py,TILE,TILE);
-      gctx.fillStyle="#7d5e39"; gctx.fillRect(px,py+2,TILE,3); gctx.fillRect(px,py+9,TILE,3);
-      if(winter){ gctx.fillStyle="rgba(238,244,246,.7)"; gctx.fillRect(px,py,TILE,2); }
+      if(town.era>=2){
+        // dressed-stone span (era 2+); lamp posts appear in the city age
+        gctx.fillStyle="#8d8578"; gctx.fillRect(px,py,TILE,TILE);
+        gctx.fillStyle="#9b948a"; gctx.fillRect(px+1,py+5,6,4); gctx.fillRect(px+9,py+11,6,4);
+        gctx.fillStyle="#6b665c"; gctx.fillRect(px,py,TILE,2); gctx.fillRect(px,py+TILE-2,TILE,2);
+        if(town.era>=3 && (x+y)%5===0){ gctx.fillStyle="#2f2a1e"; gctx.fillRect(px+7,py+4,2,5); gctx.fillStyle="#d8a24a"; gctx.fillRect(px+6,py+2,4,3); }
+        if(winter){ gctx.fillStyle="rgba(238,244,246,.7)"; gctx.fillRect(px,py,TILE,2); }
+      } else {
+        gctx.fillStyle="#6b4f2e"; gctx.fillRect(px,py,TILE,TILE);
+        gctx.fillStyle="#7d5e39"; gctx.fillRect(px,py+2,TILE,3); gctx.fillRect(px,py+9,TILE,3);
+        if(winter){ gctx.fillStyle="rgba(238,244,246,.7)"; gctx.fillRect(px,py,TILE,2); }
+      }
     } else {
       const v=((x*7+y*13)%5);
       gctx.fillStyle=ramp[v];
       gctx.fillRect(px,py,TILE,TILE);
       if(v===2){ gctx.fillStyle=mote; gctx.fillRect(px+5,py+4,2,2); gctx.fillRect(px+11,py+10,2,2); }
       if(wear[K(x,y)]>60){
-        gctx.fillStyle= winter ? (wear[K(x,y)]>200 ? "#a49c80" : "#b8b29a")
-                               : (wear[K(x,y)]>200 ? "#7a6640" : "#5d5a38");
+        // roads dress with the town's age: dirt → gravel-cobble → flagstone
+        const heavy=wear[K(x,y)]>200;
+        gctx.fillStyle = town.era>=3 ? (heavy?"#8f8a7c":"#767162")
+          : town.era===2 ? (heavy?"#96907f":"#6f6a58")
+          : winter ? (heavy?"#a49c80":"#b8b29a") : (heavy?"#7a6640":"#5d5a38");
         gctx.beginPath(); gctx.ellipse(px+8,py+8,7,6,0,0,7); gctx.fill();
+        if(town.era>=2 && heavy){ gctx.fillStyle="rgba(0,0,0,.13)"; gctx.fillRect(px+2,py+7,12,1); gctx.fillRect(px+7,py+2,1,12); }
       }
       if(g===G_GRAVE){
         gctx.fillStyle="#8d9088"; gctx.fillRect(px+5,py+5,6,9);
@@ -2021,14 +2130,49 @@ function drawGround(){
       }
     }
   }
-  // plaza well
+  // the town's heart grows with its age: a well → a stone fountain on a
+  // paved square with market stalls → a grand lamplit square (era 3)
   const wx=PLAZA.x*TILE, wy=PLAZA.y*TILE;
-  gctx.fillStyle="#6f6a5e"; gctx.beginPath(); gctx.arc(wx,wy,10,0,7); gctx.fill();
-  gctx.fillStyle="#2b4d63"; gctx.beginPath(); gctx.arc(wx,wy,6,0,7); gctx.fill();
-  gctx.fillStyle="#8a8574"; gctx.fillRect(wx-11,wy-2,4,4); gctx.fillRect(wx+7,wy-2,4,4);
-  if(winter){
-    gctx.strokeStyle="#e6ecee"; gctx.lineWidth=2;
-    gctx.beginPath(); gctx.arc(wx,wy,9,Math.PI*1.05,Math.PI*1.95); gctx.stroke();
+  if(town.era>=2){
+    const R = town.era>=3 ? 4.6 : 3.2;                   // paved radius, in tiles
+    for(let ty=Math.ceil(PLAZA.y-R); ty<=Math.floor(PLAZA.y+R); ty++)
+      for(let tx=Math.ceil(PLAZA.x-R); tx<=Math.floor(PLAZA.x+R); tx++){
+        if(!inb(tx,ty) || ground[K(tx,ty)]!==G_GRASS) continue;
+        if(dist(tx+0.5,ty+0.5,PLAZA.x,PLAZA.y)>R) continue;
+        const ppx=tx*TILE, ppy=ty*TILE;
+        gctx.fillStyle=((tx+ty)%2)?"#a29b8b":"#98917f"; gctx.fillRect(ppx,ppy,TILE,TILE);
+        gctx.fillStyle="rgba(0,0,0,.10)"; gctx.fillRect(ppx,ppy,TILE,1); gctx.fillRect(ppx,ppy,1,TILE);
+      }
+    // the fountain: dressed-stone basin, clear water, a crowned spout
+    gctx.fillStyle="#75705f"; gctx.beginPath(); gctx.arc(wx,wy,12,0,7); gctx.fill();
+    gctx.fillStyle="#9b948a"; gctx.beginPath(); gctx.arc(wx,wy,10,0,7); gctx.fill();
+    gctx.fillStyle="#2b4d63"; gctx.beginPath(); gctx.arc(wx,wy,7,0,7); gctx.fill();
+    gctx.fillStyle="#3a6a84"; gctx.fillRect(wx-6,wy-1,4,2); gctx.fillRect(wx+2,wy-1,4,2);
+    gctx.fillStyle="#9b948a"; gctx.fillRect(wx-2,wy-5,4,6);
+    gctx.fillStyle="#d8e6ec"; gctx.fillRect(wx-1,wy-6,2,2);
+    if(town.era>=3) for(const [lx,ly] of SQUARE_LAMPS()){
+      gctx.fillStyle="#2f2a1e"; gctx.fillRect(lx-1,ly-8,2,10);
+      gctx.fillStyle="#d8a24a"; gctx.fillRect(lx-2,ly-12,4,4);
+    }
+    if(winter){ gctx.strokeStyle="#e6ecee"; gctx.lineWidth=2;
+      gctx.beginPath(); gctx.arc(wx,wy,11,Math.PI*1.05,Math.PI*1.95); gctx.stroke(); }
+    // open-air marketplace: striped stalls on the square's east edge
+    for(let i=0;i<3;i++){
+      const sx=wx+TILE*2+4, sy=wy-TILE*2 + i*Math.round(TILE*1.6);
+      gctx.fillStyle="#5a4026"; gctx.fillRect(sx,sy+8,2,6); gctx.fillRect(sx+12,sy+8,2,6);
+      gctx.fillStyle="#7a5a34"; gctx.fillRect(sx-1,sy+7,16,3);
+      gctx.fillStyle=["#c65a6e","#d8a24a","#84b06a"][i]; gctx.fillRect(sx-2,sy,18,4);
+      gctx.fillStyle="rgba(255,255,255,.35)"; for(let k2=sx-2;k2<sx+16;k2+=4) gctx.fillRect(k2,sy,2,4);
+      gctx.fillStyle="rgba(0,0,0,.14)"; gctx.fillRect(sx-2,sy+4,18,1);
+    }
+  } else {
+    gctx.fillStyle="#6f6a5e"; gctx.beginPath(); gctx.arc(wx,wy,10,0,7); gctx.fill();
+    gctx.fillStyle="#2b4d63"; gctx.beginPath(); gctx.arc(wx,wy,6,0,7); gctx.fill();
+    gctx.fillStyle="#8a8574"; gctx.fillRect(wx-11,wy-2,4,4); gctx.fillRect(wx+7,wy-2,4,4);
+    if(winter){
+      gctx.strokeStyle="#e6ecee"; gctx.lineWidth=2;
+      gctx.beginPath(); gctx.arc(wx,wy,9,Math.PI*1.05,Math.PI*1.95); gctx.stroke();
+    }
   }
 }
 
@@ -2105,6 +2249,15 @@ function draw(){
     else drawAgent(sp.o);
   }
 
+  // the fountain plays (era 2+): a few cosmetic droplets over the basin
+  if(town.era>=2 && !REDUCED_MOTION){
+    ctx.fillStyle="rgba(214,236,244,.7)";
+    for(let i=0;i<4;i++){
+      const ang=Math.random()*6.28, rr=2+Math.random()*5;
+      ctx.fillRect(Math.round(PLAZA.x*TILE+Math.cos(ang)*rr), Math.round(PLAZA.y*TILE-3+Math.sin(ang)*rr*0.5), 1,1);
+    }
+  }
+
   // falling leaves (autumn) / blossom petals (spring) — under the light grade
   if(season===0||season===2){
     const ca=season===2?"#b0763a":"#e3a8b5", cb=season===2?"#8a5a2c":"#dd8f9f";
@@ -2143,10 +2296,14 @@ function draw(){
       const occupied=(hh.owners||[]).some(id=>{const o=byId(id); return o&&o.inside;});
       drawGlow(hh.doorX*TILE+14.5, hh.doorY*TILE+3.5, 11, night*(occupied?1:0.7));  // door lantern
       if(occupied){
-        drawGlow(hh.x*TILE+6.5, hh.y*TILE+15.5, 6, night*0.6);                      // lit windows
-        drawGlow(hh.x*TILE+TILE*3-6.5, hh.y*TILE+15.5, 6, night*0.6);
+        if(roofOff()) drawGlow(hh.x*TILE+TILE*1.5, hh.y*TILE+TILE*1.4, 14, night*0.7);   // hearth-lit room, roof off
+        else {
+          drawGlow(hh.x*TILE+6.5, hh.y*TILE+15.5, 6, night*0.6);                    // lit windows
+          drawGlow(hh.x*TILE+TILE*3-6.5, hh.y*TILE+15.5, 6, night*0.6);
+        }
       }
     }
+    if(town.era>=3) for(const [lx,ly] of SQUARE_LAMPS()) drawGlow(lx,ly-10,13,night);  // the square's lamps
     if(night>0.45 && season!==3 && (atmo.state==="clear"||atmo.state==="drizzle")){
       for(const p of fPool){
         const tr=trees[p.t];
@@ -2230,6 +2387,115 @@ function drawBush(b){
   ctx.fillStyle=season===2?"#8a7a3e":"#548a4e"; ctx.beginPath(); ctx.arc(px-2,py-2,3,0,7); ctx.fill();
   if(b.berries){ ctx.fillStyle="#c65a6e"; ctx.fillRect(px-3,py-2,2,2); ctx.fillRect(px+1,py,2,2); ctx.fillRect(px-1,py-4,2,2); }
 }
+/* open-roof view (§6): zoom in close and the roofs peel away — every
+   interior, furnished to its household's own taste, is drawn ON the map,
+   with occupants at the furniture they are actually using. Each building
+   kind has its own room: cottages differ house to house, the tavern keeps
+   its bar and kegs, the market its counters, the school its rows of desks. */
+const ROOF_OFF_ZOOM=2.2;
+const roofOff=()=> zoom>=ROOF_OFF_ZOOM;
+const FLOOR_BY_MAT=["#8a7455","#a5834e","#a29b8b","#b3a892"];   // packed earth / plank / stone / dressed stone
+function drawFurnWorld(fx,fy,type,owner){
+  const hue=owner?owner.hue:40;
+  switch(type){
+    case "bed":
+      ctx.fillStyle="#5a4026"; ctx.fillRect(fx,fy,7,5);
+      ctx.fillStyle=hsl(hue,45,55); ctx.fillRect(fx+2,fy+1,5,3);
+      ctx.fillStyle="#e9e2cf"; ctx.fillRect(fx,fy+1,2,3);
+      break;
+    case "table":
+      ctx.fillStyle="#7a5a34"; ctx.fillRect(fx,fy,6,4);
+      ctx.fillStyle="#5a4026"; ctx.fillRect(fx,fy+4,1,2); ctx.fillRect(fx+5,fy+4,1,2);
+      break;
+    case "hearth":
+      ctx.fillStyle="#6e6a60"; ctx.fillRect(fx,fy,6,5);
+      ctx.fillStyle="#2a2118"; ctx.fillRect(fx+1,fy+1,4,3);
+      ctx.fillStyle="#d86a3a"; ctx.fillRect(fx+2,fy+2,2,2);
+      break;
+    case "oven":
+      ctx.fillStyle="#8d8578"; ctx.fillRect(fx,fy,6,5);
+      ctx.fillStyle="#2a2118"; ctx.fillRect(fx+1,fy+2,4,3);
+      ctx.fillStyle="#d8a24a"; ctx.fillRect(fx+2,fy+3,2,1);
+      break;
+    case "easel":
+      ctx.fillStyle="#5a4026"; ctx.fillRect(fx+1,fy+2,1,4); ctx.fillRect(fx+4,fy+2,1,4);
+      ctx.fillStyle="#e9e2cf"; ctx.fillRect(fx,fy,6,4);
+      ctx.fillStyle=hsl(hue,60,55); ctx.fillRect(fx+1,fy+1,2,2);
+      break;
+    case "books":
+      ctx.fillStyle="#5a4026"; ctx.fillRect(fx,fy,6,5);
+      ctx.fillStyle=hsl(hue,50,50); ctx.fillRect(fx+1,fy+1,1,3);
+      ctx.fillStyle=hsl((hue+120)%360,45,55); ctx.fillRect(fx+3,fy+1,1,3);
+      ctx.fillStyle="#d8a24a"; ctx.fillRect(fx+4,fy+1,1,3);
+      break;
+    case "plant":
+      ctx.fillStyle="#8a5a36"; ctx.fillRect(fx+1,fy+3,3,2);
+      ctx.fillStyle="#3e5f3a"; ctx.fillRect(fx,fy,5,3); ctx.fillRect(fx+2,fy-1,1,1);
+      break;
+    case "lute":
+      ctx.fillStyle="#8a6a3a"; ctx.fillRect(fx,fy+2,3,3); ctx.fillRect(fx+2,fy,1,3);
+      break;
+    case "clutter":
+      ctx.fillStyle="#8a7455"; ctx.fillRect(fx,fy+2,3,2);
+      ctx.fillStyle="#96a591"; ctx.fillRect(fx+3,fy,2,3);
+      ctx.fillStyle="#c65a6e"; ctx.fillRect(fx+1,fy,2,1);
+      break;
+    case "cat":
+      ctx.fillStyle="#d8a24a"; ctx.fillRect(fx,fy+1,4,2); ctx.fillRect(fx+3,fy,1,1);
+      break;
+    case "beams": break;   // overhead — invisible once the roof is off
+    default:
+      ctx.fillStyle="#7a5a34"; ctx.fillRect(fx,fy,4,3);
+  }
+}
+function drawCommunalFurnWorld(b,px,py,wpx){
+  if(b.kind==="tavern"){
+    ctx.fillStyle="#5a4026"; ctx.fillRect(px+4,py+6,wpx-20,5);                       // the bar
+    ctx.fillStyle="#d8a24a"; for(let i=0;i<4;i++) ctx.fillRect(px+6+i*8,py+7,2,2);   // mugs
+    ctx.fillStyle="#7a5a34";
+    for(const [tx2,ty2] of [[px+9,py+24],[px+25,py+32],[px+41,py+22]]){              // round tables
+      ctx.beginPath(); ctx.arc(tx2,ty2,4,0,7); ctx.fill();
+    }
+    ctx.fillStyle="#6b4f2e"; ctx.fillRect(px+wpx-12,py+6,7,8);                       // kegs
+    ctx.fillStyle="#8a6a3a"; ctx.fillRect(px+wpx-12,py+9,7,1);
+  } else if(b.kind==="market"){
+    ctx.fillStyle="#7a5a34"; ctx.fillRect(px+5,py+8,14,4); ctx.fillRect(px+wpx-20,py+8,14,4);  // counters
+    ctx.fillStyle="#c65a6e"; ctx.fillRect(px+6,py+7,3,2);
+    ctx.fillStyle="#84b06a"; ctx.fillRect(px+11,py+7,3,2);
+    ctx.fillStyle="#d8a24a"; ctx.fillRect(px+wpx-18,py+7,3,2);
+    ctx.fillStyle="#8a6a3a"; ctx.fillRect(px+6,py+26,6,6); ctx.fillRect(px+14,py+28,6,4);      // crates
+    ctx.fillStyle="#e8dfc8"; ctx.beginPath(); ctx.arc(px+wpx-10,py+30,3,0,7); ctx.fill();      // grain sack
+  } else if(b.kind==="school"){
+    ctx.fillStyle="#5a4026"; ctx.fillRect(px+Math.floor(wpx/2)-5,py+6,10,4);                   // teacher's desk
+    ctx.fillStyle="#2a2118"; ctx.fillRect(px+4,py+5,8,5);                                      // slate board
+    ctx.fillStyle="#e9e2cf"; ctx.fillRect(px+5,py+6,4,1);
+    ctx.fillStyle="#7a5a34";
+    for(let r=0;r<2;r++) for(let c=0;c<3;c++) ctx.fillRect(px+8+c*14, py+18+r*10, 7,3);        // pupils' desks
+  }
+}
+function drawOpenRoof(h,night){
+  const wT=h.w||3;
+  const px=h.x*TILE, py=h.y*TILE, wpx=TILE*wT, hpx=TILE*3;
+  const mat=h.kind?2:(h.mat??1);
+  ctx.fillStyle="#241c12"; ctx.fillRect(px,py,wpx,hpx);                  // cutaway wall ring
+  ctx.fillStyle=FLOOR_BY_MAT[mat]||"#a5834e";
+  ctx.fillRect(px+2,py+4,wpx-4,hpx-6);
+  ctx.fillStyle="rgba(0,0,0,.08)";
+  for(let yy=py+9;yy<py+hpx-3;yy+=5) ctx.fillRect(px+2,yy,wpx-4,1);      // floor seams
+  ctx.fillStyle=FLOOR_BY_MAT[mat]; ctx.fillRect(h.doorX*TILE+3, py+hpx-2, 10, 2);   // door gap, south wall
+  if(night>0){ ctx.fillStyle=`rgba(240,192,96,${(0.10*night).toFixed(3)})`; ctx.fillRect(px+2,py+4,wpx-4,hpx-6); }
+  if(h.kind){ drawCommunalFurnWorld(h,px,py,wpx); return; }
+  const own0=byId((h.owners||[])[0]);
+  for(const it of h.interior||[])
+    drawFurnWorld(px+4+Math.round(it.x*(wpx-14)/6), py+7+Math.round(it.y*(hpx-16)/3), it.type, own0);
+  for(const id of h.owners||[]){                                          // occupants, at their real spots
+    const o=byId(id); if(!o||!o.inside) continue;
+    const act=interiorActivityOf(o), sp=interiorSpotFor(h,act);
+    const fx=px+4+Math.round(sp.x*(wpx-14)/6), fy=py+7+Math.round(sp.y*(hpx-16)/3);
+    if(act==="sleep"){ ctx.fillStyle=hsl(o.hue,42,48); ctx.fillRect(fx+2,fy+1,4,2); ctx.fillStyle=o.skin; ctx.fillRect(fx+1,fy+1,2,2); }
+    else { ctx.fillStyle=hsl(o.hue,42,48); ctx.fillRect(fx+1,fy+3,3,3); ctx.fillStyle=o.skin; ctx.fillRect(fx+1,fy+1,3,2); ctx.fillStyle=isElder(o)?"#d8d3c8":o.hair; ctx.fillRect(fx+1,fy,3,1); }
+  }
+}
 function drawHouse(h,night){
   const px=h.x*TILE, py=h.y*TILE, wpx=TILE*3;
   const st=h.style||{wall:"#7a6a4a",wallDark:"#57492f",roof:"#6e4632",roofShape:"gable"};
@@ -2246,10 +2512,39 @@ function drawHouse(h,night){
     for(let i=0;i<Math.min(h.woodHave||0,10);i++) ctx.fillRect(px-6, py+TILE*3-4-i*3, 5,2);
     return;
   }
+  // open-roof view: zoomed in close, the roof peels away and you see inside
+  if(roofOff()){ drawOpenRoof(h,night); return; }
+  const mat=h.mat??1;
+  // materials by age (§40): mud-and-thatch hut / timber / dressed stone / city brick
+  if(mat===0){
+    const hue=o0?o0.hue:35;
+    ctx.fillStyle=hsl(hue,10,36); ctx.fillRect(px+3,py+16,wpx-6,TILE*3-16);          // daub walls
+    ctx.fillStyle="rgba(0,0,0,.2)"; ctx.fillRect(px+3,py+TILE*3-3,wpx-6,3);
+    ctx.fillStyle="#b08d4a"; ctx.beginPath(); ctx.arc(px+wpx/2, py+18, wpx/2-1, Math.PI, 0); ctx.fill();   // thatch dome
+    ctx.fillStyle="#8a6a34"; for(let i=0;i<3;i++) ctx.fillRect(px+8+i*12, py+6+(i%2)*3, 8,1);
+    if(season===3){ ctx.strokeStyle="#e6ecee"; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(px+wpx/2,py+18,wpx/2-2,Math.PI*1.1,Math.PI*1.9); ctx.stroke(); }
+    ctx.fillStyle="#2f2114"; ctx.fillRect(px+TILE+4,py+TILE*2+2,8,TILE-4);           // low door
+    ctx.fillStyle="#3a2f1e"; ctx.fillRect(px+5,py+20,5,5);
+    ctx.fillStyle= night>0 ? "#f0c060" : "#20323e"; ctx.fillRect(px+6,py+21,3,3);    // one small window
+    if(owners.some(id=>{const o=byId(id); return o&&o.inside;})){
+      ctx.fillStyle="rgba(220,220,210,.3)";                                          // smoke-hole wisp
+      const t=simTime*2;
+      for(let i=0;i<2;i++){ const yy=py-2-i*5-(t%5); ctx.beginPath(); ctx.arc(px+wpx/2+Math.sin(t+i)*2, yy, 2+i, 0, 7); ctx.fill(); }
+    }
+    return;
+  }
+  let wallC=st.wall, wallD=st.wallDark, roofC=st.roof;
+  if(mat===2){ wallC="#9b948a"; wallD="#6b665c"; roofC="#5c6672"; }
+  else if(mat===3){ wallC="#b3a892"; wallD="#75705f"; roofC="#454b59"; }
   // walls
-  ctx.fillStyle=st.wall; ctx.fillRect(px+1,py+8,wpx-2,TILE*3-8);
-  // wall texture: timber framing on tidy gables, plank courses otherwise
-  if(st.roofShape==="gable"){
+  ctx.fillStyle=wallC; ctx.fillRect(px+1,py+8,wpx-2,TILE*3-8);
+  // wall texture: block courses in stone ages; timber framing / planks before
+  if(mat>=2){
+    ctx.fillStyle="rgba(0,0,0,.12)";
+    for(let yy=py+13; yy<py+TILE*3-4; yy+=5) ctx.fillRect(px+1,yy,wpx-2,1);
+    ctx.fillRect(px+Math.floor(wpx/3),py+13,1,5); ctx.fillRect(px+Math.floor(wpx*2/3),py+23,1,5);
+  } else if(st.roofShape==="gable"){
     ctx.fillStyle="rgba(43,33,20,.45)";
     ctx.fillRect(px+1,py+8,2,TILE*3-8);
     ctx.fillRect(px+wpx-3,py+8,2,TILE*3-8);
@@ -2258,10 +2553,18 @@ function drawHouse(h,night){
     ctx.fillStyle="rgba(0,0,0,.10)";
     for(let yy=py+14; yy<py+TILE*3-4; yy+=4) ctx.fillRect(px+1,yy,wpx-2,1);
   }
-  ctx.fillStyle=st.wallDark; ctx.fillRect(px+1,py+TILE*3-3,wpx-2,3);   // foundation skirt
+  if(mat===3){  // city quoins + a second window row under the eaves
+    ctx.fillStyle="#8d8578";
+    ctx.fillRect(px+1,py+8,2,TILE*3-8); ctx.fillRect(px+wpx-3,py+8,2,TILE*3-8);
+    for(const wx2 of [px+5, px+wpx-10]){
+      ctx.fillStyle="#3a2f1e"; ctx.fillRect(wx2-1,py+9,6,4);
+      ctx.fillStyle= night>0 ? "#f0c060" : "#20323e"; ctx.fillRect(wx2,py+10,4,2);
+    }
+  }
+  ctx.fillStyle=wallD; ctx.fillRect(px+1,py+TILE*3-3,wpx-2,3);   // foundation skirt
   ctx.fillStyle="rgba(0,0,0,.20)"; ctx.fillRect(px+1,py+8,wpx-2,3);    // eaves shadow
   // roof — three distinct silhouettes with trim
-  ctx.fillStyle=st.roof;
+  ctx.fillStyle=roofC;
   if(st.roofShape==="round"){
     ctx.beginPath(); ctx.arc(px+wpx/2, py+10, wpx/2+2, Math.PI, 0); ctx.fill();
     ctx.strokeStyle="rgba(255,235,200,.18)"; ctx.lineWidth=2;
@@ -2297,11 +2600,12 @@ function drawHouse(h,night){
     const t=simTime*2;
     for(let i=0;i<3;i++){ const yy=py-8-i*5-(t%5); ctx.beginPath(); ctx.arc(px+wpx-7+Math.sin(t+i)*2, yy, 2+i, 0, 7); ctx.fill(); }
   }
-  // door: frame, panel, handle, step
+  // door: frame, panel, handle, step — in the stone ages the door keeps the
+  // owner's color, so identity survives the change of material
   ctx.fillStyle="#2f2114"; ctx.fillRect(px+TILE+3,py+TILE*2-1,10,TILE+1);
-  ctx.fillStyle="#4a3520"; ctx.fillRect(px+TILE+4,py+TILE*2,8,TILE-2);
+  ctx.fillStyle= mat>=2 && o0 ? hsl(o0.hue,38,34) : "#4a3520"; ctx.fillRect(px+TILE+4,py+TILE*2,8,TILE-2);
   ctx.fillStyle="#d8a24a"; ctx.fillRect(px+TILE+10,py+TILE*2+6,1,2);
-  ctx.fillStyle=st.wallDark; ctx.fillRect(px+TILE+3,py+TILE*3-2,10,2);
+  ctx.fillStyle=wallD; ctx.fillRect(px+TILE+3,py+TILE*3-2,10,2);
   // windows: frame + mullion + per-owner window box
   const wy=py+13;
   const bloom = o0 ? hsl(o0.hue,58,64) : "#dd8f9f";
@@ -2319,7 +2623,7 @@ function drawHouse(h,night){
   if((h.tier||1)>=2){
     // dormer sits ON the roof plane — x depends on the roof silhouette
     const dmx = st.roofShape==="round" ? px+6 : st.roofShape==="gable" ? px+10 : px+24;
-    ctx.fillStyle=st.roof; ctx.fillRect(dmx,py-1,8,7);
+    ctx.fillStyle=roofC; ctx.fillRect(dmx,py-1,8,7);
     ctx.fillStyle="rgba(0,0,0,.2)"; ctx.fillRect(dmx,py-1,8,2);
     if(season===3){ ctx.fillStyle="#e6ecee"; ctx.fillRect(dmx,py-2,8,1); }
     ctx.fillStyle= night>0 ? "#f0c060" : "#20323e"; ctx.fillRect(dmx+2,py+2,4,3);
@@ -2375,6 +2679,7 @@ function drawSpecialBuilding(b,night){
     for(let i=0;i<Math.min(b.woodHave||0,10);i++) ctx.fillRect(px-6, py+TILE*3-4-i*3, 5,2);
     return;
   }
+  if(roofOff()){ drawOpenRoof(b,night); return; }   // zoomed in: see the bar, stalls, desks
   // walls — always timber-framed: a public building
   ctx.fillStyle=st.wall; ctx.fillRect(px+1,py+6,wpx-2,TILE*3-6);
   ctx.fillStyle="rgba(43,33,20,.5)";
@@ -2629,7 +2934,8 @@ function renderInspector(){
   } else {
     const h=sel.h;
     const names=h.owners.map(id=>byId(id)?.name).filter(Boolean).join(" & ")||"an empty";
-    const tierWord=(h.tier||1)>=3?"townhouse":(h.tier||1)===2?"improved cottage":"cottage";
+    const matPre=(h.mat??1)>=3?"city ":(h.mat??1)===2?"stone ":"";
+    const tierWord=(h.mat??1)===0?"hut":matPre+((h.tier||1)>=3?"townhouse":(h.tier||1)===2?"improved cottage":"cottage");
     el.innerHTML=`
       <h2>${esc(names)}${names==="an empty"?"":"'s"} ${tierWord}</h2>
       <p class="sub">${h.stage==="done"?(h.upg?"being rebuilt finer — "+Math.round(h.upg.progress*100)+"%":"finished"):"under construction — "+Math.round(h.progress*100)+"% ("+h.woodHave+"/"+h.woodNeed+" timber)"} · ${describeSpot(h.x,h.y)}${(h.designQ??0)>0.8?" · a masterwork of design":(h.designQ??0)>0.6?" · finely designed":""}${h.designer?` · plans by ${esc(h.designer)}`:""}</p>
@@ -2823,7 +3129,7 @@ function openFamilyTree(){
 
 /* ============================== persistence (§36: versioned saves) ============================== */
 const SAVE_KEY="emberhollow-save";
-const SAVE_V=5;
+const SAVE_V=6;
 const AGENT_FIELDS=["id","name","hue","skin","hair","x","y","home","carrying","partner","parents",
   "birthDay","lifespan","memories","thought","likes","traits","needs","brain","chatTurns",
   "skills","wealth","knows","career","careerAt","body","phys","groom","wardrobe","bodyAt","worksFor","pregnant"];
@@ -2831,6 +3137,7 @@ function serializeGame(){
   return {
     v:SAVE_V, savedAt:Date.now(), simTime, nextId, nextHouse, nextBiz,
     world:{w:W,h:H},
+    town:{...town, works: town.works?{...town.works}:null},
     civic:{...civic, laws:civic.laws.slice()},
     tech:{...tech},
     townBook: townBook.slice(),
@@ -2919,6 +3226,12 @@ function migrateSave(d){
     d.world={w:W,h:H};
     d.v=5;
   }
+  if(d.v===5){
+    // v6 adds the ages of the town: existing towns are already timber-built
+    d.town ??= {era:1, eraAt:0, checkAt:-1, works:null};
+    for(const h of d.houses) h.mat ??= 1;
+    d.v=6;
+  }
   if(d.v===SAVE_V) return d;
   throw new Error("save version "+d.v+" is newer than this build");
 }
@@ -2930,6 +3243,7 @@ function rebuildSolid(){
     for(let y=h.y;y<h.y+3;y++) for(let x=h.x;x<h.x+(h.w||3);x++) if(inb(x,y)) solid[K(x,y)]=1;
     solid[K(h.doorX,h.doorY)]=0;
   }
+  if(town.era>=2) solid[K(PLAZA.x|0, PLAZA.y|0)]=1;   // the fountain's basin
 }
 function saveGame(){
   try{
@@ -2945,6 +3259,8 @@ function loadGame(){
   try{
     simTime=d.simTime; nextId=d.nextId; nextHouse=d.nextHouse;
     nextBiz=d.nextBiz||((d.businesses||[]).reduce((m,b)=>Math.max(m,b.id+1),1));
+    Object.assign(town, d.town||{era:1,eraAt:0,checkAt:-1,works:null});
+    town.works=(d.town&&d.town.works)||null;
     Object.assign(civic, d.civic||{}); civic.laws=(d.civic&&d.civic.laws)||[];
     Object.assign(tech, d.tech||{});
     townBook.length=0; for(const id of d.townBook||[]) townBook.push(id);
@@ -3016,6 +3332,7 @@ window.__eh={
   get agents(){return agents;}, get houses(){return houses;}, get lineage(){return lineage;},
   get recipes(){return (typeof RECIPES!=="undefined")?RECIPES:null;},
   get civic(){return civic;}, get tech(){return tech;}, get townBook(){return townBook;},
+  get town(){return town;}, finishWorks:()=>{ if(town.works) finishWorks(null); },
   get ai(){ return aiBackend ? {kind:aiBackend.kind, name:aiBackend.name} : null; },
   askAi:(q,o)=> aiBackend ? aiBackend.ask(q,o) : Promise.reject({code:"none"}),
   day, tod, setSpeed(s){ speed=s; },
@@ -3145,6 +3462,7 @@ ${civic.leaderId===a.id?`The town elected you its Speaker on day ${civic.elected
 ${B?`You have a secret: ${B.secret} — you NEVER volunteer it; deflect gently unless this person has clearly earned deep trust across the conversation.`:""}
 Home: ${h ? (h.stage==="done"?"your finished cottage "+describeSpot(h.x,h.y):"a half-built cottage you're still raising") : "none yet; you sleep under the stars"}.
 ${a.partner?`Your partner is ${byId(a.partner)?.name||"gone now"}. `:""}${a.pregnant?`You are expecting a child, due around day ${a.pregnant.due} — it colors your days with hope and a little caution. `:""}${friends.length?`Friends: ${friends.join(", ")}. `:""}${rival?`You and ${rival.o.name} rub each other the wrong way. `:""}${drawn?`Lately you find your eyes following ${drawn.name}, though you'd not say it plainly. `:""}
+Emberhollow is ${ERA_NAMES[town.era]} these days${town.era>=2?" — the fountain runs on the square":""}.
 Your real memories from this life: ${a.memories.slice(-5).join(" | ")||"the founding of the town"}.
 Right now you are ${a.inside?(a.task&&a.task.type!=="sleep"?"busy indoors at home":"asleep at home (answer drowsily)"):a.thought}. It is ${todName()} on day ${day()}.`;
 }

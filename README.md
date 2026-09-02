@@ -8,6 +8,34 @@ specialist agents (design-director + design-critic, sim-ai-engineer,
 character-brain-keeper, town-code-reviewer) defined in `.claude/agents/`.
 See `COMMAND_CENTER.md` for the org chart and working agreement.
 
+## Round 8 (The Ages of Emberhollow — town center, eras & open roofs)
+
+- **The town grows up**: river camp → timber village → stone town → river
+  city. Ages are **earned, never timed** — headcount, a master builder,
+  real savings, a market, then government and writing — and each crossing
+  is **physically built**: villagers haul timber and set stone at the
+  square to raise the fountain, and later to pave the streets.
+- **A real town center**: the old well becomes a running stone fountain on
+  a paved square, ringed by striped open-air market stalls where sellers
+  actually trade; in the city age the square doubles, gains four lamps
+  that glow at night, and the chronicle calls it what it is.
+- **Building progression**: houses remember the age they were raised in —
+  mud-and-thatch huts, timber frames, dressed stone with the owner's hue
+  kept on the painted door, then city plaster with quoins and a second
+  window row. Prospering owners re-clad old roofs one by one ("the age of
+  timber ends one roof at a time").
+- **Roads and bridges follow**: worn dirt paths become gravel, then
+  flagstone with visible joints; timber plank bridges are rebuilt as
+  dressed-stone spans, with lamp posts in the city age.
+- **Open-roof zoom (the Smallville view)**: zoom in close and any
+  building's roof peels away — every cottage interior, furnished to its
+  household's own taste, drawn right on the map with occupants at the
+  furniture they're really using; the tavern shows its bar and kegs, the
+  market its counters and crates, the school its rows of little desks.
+- Save schema **v6** (older towns wake as timber villages, everything
+  intact). Suite grown to **21/21** (huts-first start, the earned-and-built
+  stone age, v5→v6 migration).
+
 ## Round 7 (The Wider Valley — roads, architects & new life)
 
 - **Smarter feet**: pathfinding rebuilt on a binary-heap A* that walks all

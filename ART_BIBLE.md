@@ -25,6 +25,19 @@ ramps or harmonize with the token family; villager/house identity hues come
 from per-agent `hue` via `hsl()`. Semantic warm light is always the
 `#f0c060`/`#ffd678` family.
 
+## The ages (era rendering)
+`town.era` re-dresses the world from the same token family: wear paths run
+dirt → gravel (#6f6a58/#96907f) → flagstone (#767162/#8f8a7c, joint lines);
+bridges plank → dressed stone (#8d8578, #6b665c parapets, lamp posts era 3);
+the plaza well → fountain + checkered paving (#a29b8b/#98917f) + striped
+stalls (rose/brass/meadow). House materials by `h.mat`: hut (hue-desaturated
+daub + #b08d4a thatch), timber (the original), stone (#9b948a walls,
+#5c6672 slate), city (#b3a892 plaster, #454b59 slate, #8d8578 quoins).
+Identity survives every age: the owner's hue moves to the painted door.
+**Open-roof view**: at zoom ≥ 2.2 roofs peel away (cutaway ink #241c12,
+floors by material via FLOOR_BY_MAT); furniture sprites stay ≤7px with
+owner-hue accents; occupants are 3×4 mini-figures at their real furniture.
+
 ## Light & shadow
 - One light direction: highlights upper-left (canopy lobe, roof ridge
   strokes), eaves shadow under rooflines, dark foundation skirts.

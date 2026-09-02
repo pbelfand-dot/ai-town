@@ -14,7 +14,10 @@ north star; `DEVELOPMENT_PLAN.md` for current state and roadmap.
   geography constants — never hard-code coordinates), offscreen ground layer redrawn only
   when `groundDirty`. Sim state lives in module globals (`agents`, `houses`,
   `lineage`, `RECIPES`…). Time is sim-clocked (`simTime`, `DAY=75s`, 12-day
-  seasons); rendering uses real dt (`drawDt`).
+  seasons); rendering uses real dt (`drawDt`). The town has AGES
+  (`town.era` 0–3: camp/timber/stone/city) — earned by real conditions and
+  built by villager labor, never timed; houses carry `h.mat`, roads/bridges/
+  plaza render by era, and zoom ≥ 2.2 peels roofs off (open-roof view).
 - **NPCs are data.** One brain object per villager (`a.brain`) is the single
   source of truth for both utility behavior and the live Claude interviews
   (`personaPrompt`). Never fork that.
