@@ -812,7 +812,7 @@ function driftBody(a, act){          // act 0..1 = yesterday's physical exertion
   if(isElder(a)){ b.str*=0.995; b.fit*=0.995; }
   b.str=clamp(b.str,0.05,1); b.fit=clamp(b.fit,0.05,1); b.mass=clamp(b.mass,0.1,1);
 }
-const buildWord = a => !a.body?"—":a.body.str>0.65?"strong from the work":a.body.str<0.28?"wiry":"sturdy";
+const buildWord = a => !a.body?"—":a.body.str>0.7?"strong from the work":a.body.str<0.28?"wiry":"sturdy";
 const groomWord = a => (a.groom??0.5)>0.7?"well-kept":(a.groom??0.5)<0.3?"a bit unkempt":"tidy enough";
 /* Wardrobes (§8): looks are composable at draw time, never baked into a sprite.
    Workwear derives from the trade; festival sashes are bought from a tailor —
@@ -2070,7 +2070,7 @@ function drawAgent(a){
     ctx.fillStyle=WORK_LOOK[dom]; ctx.fillRect(-3,-4,6,4);                  // apron / smock
     if(dom==="building"){ ctx.fillStyle="#3a2f1e"; ctx.fillRect(-4-broad,-2,8+broad*2,1); }  // tool belt
   } else if(tt==="festival" && a.wardrobe && a.wardrobe.festival){
-    ctx.fillStyle=hsl((a.hue+180)%360,68,62); ctx.fillRect(-4-broad,-5,8+broad*2,2);         // bought sash
+    ctx.fillStyle=hsl((a.hue+180)%360,58,60); ctx.fillRect(-4-broad,-5,8+broad*2,2);         // bought sash
   }
   // arms — swing opposite the legs; raised when carrying
   ctx.fillStyle=bodyCol;
@@ -2193,8 +2193,8 @@ function renderInspector(){
       <div class="secl">Craft</div>
       <div class="bars" id="skillbars"></div>
       <p class="kv">home: <b>${h ? (h.stage==="done"?"a finished cottage "+describeSpot(h.x,h.y):"a cottage under construction ("+Math.round(h.progress*100)+"%)") : "none yet — sleeping under the stars"}</b></p>
-      <p class="kv">trade: <b>${a.career?esc(a.career.job):"none yet"}</b> · standing: <b>${wealthWord(a)}</b>${(a.knows&&a.knows.length)?` · knows <b>${a.knows.length}</b> recipe${a.knows.length>1?"s":""}`:""}</p>
-      <p class="kv">bearing: <b>${buildWord(a)}</b> · ${groomWord(a)}${(()=>{const bz=bizOf(a); if(bz) return ` · runs <b>${esc(bz.name)}</b>`; const w=businesses.find(x=>x.id===a.worksFor); return w?` · works at <b>${esc(w.name)}</b>`:"";})()}</p>
+      <p class="kv">trade: <b>${a.career?esc(a.career.job):"none yet"}</b> · standing: <b>${wealthWord(a)}</b>${(()=>{const bz=bizOf(a); if(bz) return ` · runs <b>${esc(bz.name)}</b>`; const w=businesses.find(x=>x.id===a.worksFor); return w?` · works at <b>${esc(w.name)}</b>`:"";})()}${(a.knows&&a.knows.length)?` · knows <b>${a.knows.length}</b> recipe${a.knows.length>1?"s":""}`:""}</p>
+      <p class="kv">bearing: <b>${buildWord(a)}</b> · ${groomWord(a)}</p>
       <div class="secl">Bonds</div>
       <div class="rels">${relRows}</div>
       <div id="askbox">
