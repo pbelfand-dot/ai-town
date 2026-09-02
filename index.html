@@ -909,7 +909,7 @@ function pickTeacher(){
   let best=null,bs=0.25;
   for(const a of agents){
     if(!a.alive||!isAdult(a)) continue;
-    const s=(skillOf(a,"lore")*1.2 + Math.max(...Object.values(a.skills||{lore:0})))/2;
+    const s=(skillOf(a,"lore")*1.2 + Math.max(0,...Object.values(a.skills||{})))/2;
     if(s>bs){bs=s;best=a;}
   }
   schoolTeacher=best?best.id:0;
@@ -1040,13 +1040,24 @@ function chooseTask(a){
     const b=nearestBush(a);
     if(b){ a.thought="off to pick berries"; return goto(a,b.x,b.y,{type:"forage",bush:b}); }
   }
-  // home improvement (§7): tiers rise from wealth, skill, and timber
-  if(h && h.stage==="done" && h.upg){
-    if(a.carrying>0){ a.thought="hauling timber for the extension"; return goto(a,h.doorX,h.doorY,{type:"deliverUpg"}); }
+  // hired hands honor their contracts (§21): a paid builder works the extension they took
+  if(isAdult(a)){
+    const job=houses.find(x=>x.upg && x.upg.builder===a.id);
+    if(job){
+      if(a.carrying>0){ a.thought="hauling timber to the job"; return goto(a,job.doorX,job.doorY,{type:"deliverUpg",hid:job.id}); }
+      if(job.upg.wood < job.upg.need){
+        const t=nearestTree(a);
+        if(t){ a.thought="cutting timber for a paying job"; return goto(a,t.x,t.y,{type:"chop",tree:t}); }
+      } else { a.thought="raising an extension for good coin"; return goto(a,job.doorX,job.doorY,{type:"constructUpg",hid:job.id}); }
+    }
+  }
+  // home improvement (§7): the household labors only when it did NOT hire out the work
+  if(h && h.stage==="done" && h.upg && !h.upg.builder && isAdult(a)){
+    if(a.carrying>0){ a.thought="hauling timber for the extension"; return goto(a,h.doorX,h.doorY,{type:"deliverUpg",hid:h.id}); }
     if(h.upg.wood < h.upg.need){
       const t=nearestTree(a);
       if(t){ a.thought="cutting timber for the extension"; return goto(a,t.x,t.y,{type:"chop",tree:t}); }
-    } else { a.thought="working on the extension"; return goto(a,h.doorX,h.doorY,{type:"constructUpg"}); }
+    } else { a.thought="working on the extension"; return goto(a,h.doorX,h.doorY,{type:"constructUpg",hid:h.id}); }
   }
   // house project
   if(h && h.stage==="building"){
@@ -1291,6 +1302,8 @@ function removeHouseClaim(h,a){
     for(let y=h.y;y<h.y+3;y++) for(let x=h.x;x<h.x+3;x++) solid[K(x,y)]=0;
     houses.splice(houses.indexOf(h),1);
     if(sel && sel.kind==="house" && sel.h===h) select(null);
+  } else if(h.owners.length===0 && h.upg){
+    h.upg=null;   // nobody left to finish the extension — the scaffold comes down
   }
 }
 
@@ -1537,22 +1550,21 @@ function updateAgent(a, dt){
       break;
     }
     case "deliverUpg": {
-      const hu=homeOf(a);
+      const hu = t.hid!=null ? houses.find(x=>x.id===t.hid) : homeOf(a);
       if(!hu||!hu.upg){ a.task=null; a.carrying=0; break; }
       hu.upg.wood+=a.carrying; a.phys=(a.phys||0)+0.5+a.carrying*0.2; a.carrying=0; a.task=null;
       break;
     }
     case "constructUpg": {
-      const hu=homeOf(a);
+      const hu = t.hid!=null ? houses.find(x=>x.id===t.hid) : homeOf(a);
       if(!hu||!hu.upg){ a.task=null; break; }
       t.t=(t.t||0)+dt;
       hu.upg.progress=clamp(hu.upg.progress + dt*0.05*(0.4+a.traits.industry*0.5+skillOf(a,"building")*0.9), 0, 1);
       gainSkill(a,"building",dt*0.004); a.phys=(a.phys||0)+dt*0.6;
       if(hu.upg.progress>=1){
         hu.tier=Math.min(3,(hu.tier||1)+1);
-        // the hired builder gets paid; the household pays real coin
+        // (the household already paid up front when the work began)
         const owner=byId(hu.owners[0]);
-        if(owner){ owner.wealth=Math.max(0,(owner.wealth||0)-hu.upg.cost); }
         if(hu.upg.builder && hu.upg.builder!==(owner&&owner.id)){
           const bld=byId(hu.upg.builder);
           if(bld){ bld.wealth=(bld.wealth||0)+4; remember(bld,`I was paid good coin to raise ${owner?owner.name+"'s":"a"} extension.`); }
@@ -1662,6 +1674,7 @@ function slowPulse(){
         : agents.find(o=>o!==a&&o.alive&&isAdult(o)&&o.career&&o.career.domain==="building"&&skillOf(o,"building")>0.3);
       if(canSelf || builder){
         hh.upg={progress:0, wood:0, need:6, cost:(hh.tier||1)*6, builder:builder?builder.id:null};
+        a.wealth=Math.max(0,(a.wealth||0)-hh.upg.cost);   // paid up front — no dodging the bill by dying
         chron(builder
           ? `${a.name} hired ${builder.name} to rebuild the cottage finer — coin for craft.`
           : `${a.name} started rebuilding the family cottage with their own hands.`);
@@ -2674,6 +2687,7 @@ function loadGame(){
     }
     rebuildSolid();
     season=seasonOf(day()); groundDirty=true;
+    schoolTeacher=0; teacherAt=0;          // re-picked next pulse from the loaded population
     pulseAt=simTime+3; sel=null; renderInspector();
     toast(`Welcome back — day ${day()}, ${agents.length} souls remembered.`);
     return true;
