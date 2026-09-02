@@ -150,7 +150,39 @@ const snap = p => p.evaluate(`(${function () {
   report('versioned migration v1→v2', mig.ok && mig.filled && mig.kept && mig.econ,
     mig.kept ? 'population preserved, defaults filled' : 'POPULATION LOST');
 
-  // ── 9. No page errors across the whole run ──
+  // ── 9. Housing evolves with prosperity (§7) ──
+  const housing = await a.evaluate(`(${function () {
+    const eh = window.__eh;
+    const owner = eh.agents.find(x => { const h = eh.houses.find(hh => hh.id === x.home && hh.stage === 'done' && !hh.kind); return h && h.owners[0] === x.id; });
+    if (!owner) return { skip: true };
+    owner.wealth = 40; owner.skills.building = 0.8;
+    const h = eh.houses.find(hh => hh.id === owner.home);
+    const t0 = h.tier || 1;
+    for (let i = 0; i < 30 && (h.tier || 1) === t0; i++) eh.step(30);
+    return { skip: false, from: t0, to: h.tier || 1, hist: (h.history || []).length };
+  }})()`);
+  report('housing upgrades from wealth + skill', housing.skip ? 'skip' : housing.to > housing.from,
+    housing.skip ? 'no settled owner in window' : `tier ${housing.from}→${housing.to}, ${housing.hist} history entries`);
+
+  // ── 10. The schoolhouse teaches person-to-person (§15) ──
+  const school = await a.evaluate(`(${function () {
+    const eh = window.__eh;
+    const b = startCommunal('school'); if (!b) return { skip: true };
+    b.stage = 'done';
+    const [p1, p2] = eh.agents;
+    const kid = makeAgent({ birthDay: eh.day(), parents: [p1.id, p2.id], x: b.doorX + 0.5, y: b.doorY + 1.5 });
+    pickTeacher();
+    const lore0 = (kid.skills && kid.skills.lore) || 0;
+    // step through two school mornings
+    for (let i = 0; i < 40; i++) eh.step(20);
+    const lore1 = (kid.skills && kid.skills.lore) || 0;
+    const taught = kid.memories.some(m => m.includes('schoolhouse'));
+    return { skip: false, grew: lore1 > lore0, taught, lore1: +lore1.toFixed(3) };
+  }})()`);
+  report('schoolhouse teaches the young', school.skip ? 'skip' : (school.grew || school.taught),
+    school.skip ? 'no room for a schoolhouse' : `lore ${school.lore1}${school.taught ? ', remembers the lesson' : ''}`);
+
+  // ── 11. No page errors across the whole run ──
   report('zero runtime errors', a._errors.length === 0, a._errors.slice(0, 3).join(' | ') || 'clean console');
   await a.close();
 }

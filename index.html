@@ -604,7 +604,8 @@ function startHouse(a){
   const [bx,by]=spot;
   const h = { id:nextHouse++, x:bx, y:by, owners:[a.id], stage:"building", progress:0,
               woodNeed:10, woodHave:0, style:houseStyleFor(a), interior:null,
-              doorX:bx+1, doorY:by+2 };
+              doorX:bx+1, doorY:by+2,
+              tier:1, upg:null, history:[`Ground broken by ${a.name}, day ${day()}.`] };
   for(let y=by;y<by+3;y++) for(let x=bx;x<bx+3;x++) solid[K(x,y)]=1;
   solid[K(h.doorX,h.doorY)]=0;
   houses.push(h);
@@ -621,17 +622,22 @@ function describeSpot(x,y){
   if(dist(x,y,31,21)<9) return "close to the plaza";
   return "on the town's quiet edge";
 }
+function houseNote(h,txt){ if(!h.history) h.history=[]; h.history.push(txt); if(h.history.length>12) h.history.splice(1,1); }
 function finishHouse(h){
   h.stage="done";
   h.interior = furnish(h);
+  houseNote(h, `The roof went on, day ${day()}.`);
   const names = h.owners.map(id=>byId(id)?.name).filter(Boolean).join(" & ");
   chron(`${names}'s cottage is finished — ${h.style.roofShape} roof, ${h.style.flowers?"flower beds out front":"a tidy yard"}. Step inside by clicking it.`, true);
   h.owners.forEach(id=>{ const o=byId(id); if(o) remember(o,"my cottage was finished; it feels like me."); });
 }
 function furnish(h){
-  const owner = byId(h.owners[0]); if(!owner) return [];
-  const items=[], used=new Set();
-  const put=(type,label)=>{ let g=0; while(g++<40){ const x=ri(7),y=ri(4); const k=y*7+x; if(used.has(k)) continue; used.add(k); items.push({type,x,y,label}); return; } };
+  // refurnishing PRESERVES what stands — furniture accumulates across generations (§7)
+  const owner = byId(h.owners[0]); if(!owner) return h.interior||[];
+  const items=[], used=new Set(), have=new Set();
+  for(const it of h.interior||[]){ items.push(it); used.add(it.y*7+it.x); have.add(it.type); }
+  const put=(type,label)=>{ if(have.has(type)) return; have.add(type);
+    let g=0; while(g++<40){ const x=ri(7),y=ri(4); const k=y*7+x; if(used.has(k)) continue; used.add(k); items.push({type,x,y,label}); return; } };
   put("bed", h.owners.length>1 ? "a wide shared bed" : "a small warm bed");
   put("table","a table for meals");
   put("hearth","a stone hearth");
@@ -873,22 +879,40 @@ function startCommunal(kind){
   const b={ id:nextHouse++, kind, x:bx, y:by, w:4, owners:[], stage:"building", progress:0,
             woodNeed:16, woodHave:0, style:null, interior:null,
             doorX:bx+1, doorY:by+2,
-            name: kind==="tavern" ? pick(TAVERN_NAMES) : "the market hall" };
+            name: kind==="tavern" ? pick(TAVERN_NAMES) : kind==="school" ? "the schoolhouse" : "the market hall" };
   for(let y=by;y<by+3;y++) for(let x=bx;x<bx+4;x++) solid[K(x,y)]=1;
   solid[K(b.doorX,b.doorY)]=0;
   houses.push(b);
-  chron(kind==="tavern"
-    ? `The town broke ground on a tavern near the plaza — ${b.name}. No owner, no foreman: every able hand is welcome on the timber.`
-    : `Groundbreaking! Emberhollow is raising a market hall by the plaza — a stall for every trade.`, true);
-  toast(kind==="tavern" ? `⚒ The town is building a tavern — ${b.name}` : "⚒ The town is building a market hall");
+  const groundTxt={
+    tavern:`The town broke ground on a tavern near the plaza — ${b.name}. No owner, no foreman: every able hand is welcome on the timber.`,
+    market:`Groundbreaking! Emberhollow is raising a market hall by the plaza — a stall for every trade.`,
+    school:`With this many children underfoot, the town is raising a schoolhouse — knowledge deserves a roof of its own.`,
+  };
+  chron(groundTxt[kind], true);
+  toast(`⚒ The town is building ${kind==="tavern"?"a tavern — "+b.name:kind==="school"?"a schoolhouse":"a market hall"}`);
   return b;
 }
 function finishCommunal(b){
   b.stage="done";
-  chron(b.kind==="tavern"
-    ? `${b.name} opened its doors tonight — built by the whole town, owned by the whole town. Evenings will never be quiet again.`
-    : `The market hall is finished. From tomorrow morning: bread, fish and small wonders, all for barter and gossip.`, true);
-  toast(b.kind==="tavern" ? `✦ ${b.name} is open!` : "✦ The market is open!");
+  const doneTxt={
+    tavern:`${b.name} opened its doors tonight — built by the whole town, owned by the whole town. Evenings will never be quiet again.`,
+    market:`The market hall is finished. From tomorrow morning: bread, fish and small wonders, all for barter and gossip.`,
+    school:`The schoolhouse is finished. Mornings now belong to letters, numbers, and whichever elder can hold a room of children.`,
+  };
+  chron(doneTxt[b.kind], true);
+  toast(b.kind==="tavern" ? `✦ ${b.name} is open!` : b.kind==="school" ? "✦ The schoolhouse is open!" : "✦ The market is open!");
+}
+const schoolHouse=()=> houses.find(h=>h.kind==="school" && h.stage==="done") || null;
+let schoolTeacher=0, teacherAt=0;
+function pickTeacher(){
+  // the town's most knowing free adult holds class — chosen daily, never permanent
+  let best=null,bs=0.25;
+  for(const a of agents){
+    if(!a.alive||!isAdult(a)) continue;
+    const s=(skillOf(a,"lore")*1.2 + Math.max(...Object.values(a.skills||{lore:0})))/2;
+    if(s>bs){bs=s;best=a;}
+  }
+  schoolTeacher=best?best.id:0;
 }
 
 // (Communal buildings are rendered by the design-director's drawSpecialBuilding,
@@ -1016,6 +1040,14 @@ function chooseTask(a){
     const b=nearestBush(a);
     if(b){ a.thought="off to pick berries"; return goto(a,b.x,b.y,{type:"forage",bush:b}); }
   }
+  // home improvement (§7): tiers rise from wealth, skill, and timber
+  if(h && h.stage==="done" && h.upg){
+    if(a.carrying>0){ a.thought="hauling timber for the extension"; return goto(a,h.doorX,h.doorY,{type:"deliverUpg"}); }
+    if(h.upg.wood < h.upg.need){
+      const t=nearestTree(a);
+      if(t){ a.thought="cutting timber for the extension"; return goto(a,t.x,t.y,{type:"chop",tree:t}); }
+    } else { a.thought="working on the extension"; return goto(a,h.doorX,h.doorY,{type:"constructUpg"}); }
+  }
   // house project
   if(h && h.stage==="building"){
     if(a.carrying>0){ a.thought="hauling timber to the build site"; return goto(a,h.doorX,h.doorY,{type:"deliver"}); }
@@ -1084,6 +1116,18 @@ function chooseTask(a){
   if(tv && tavernTime() && !festActive() && isAdult(a) && (a.traits.social>.4 || n.social<.6) && rnd()<.7){
     a.thought=`heading to ${tv.name} for the evening`;
     return goto(a, tv.x+ri(4), tv.y+3, {type:"tavern", t:0});
+  }
+  // school mornings (§15 institutions): children learn under a roof now
+  const sch=schoolHouse();
+  if(sch && marketOpen()){
+    if(!isAdult(a) && rnd()<0.6){
+      a.thought="off to the schoolhouse";
+      return goto(a, sch.x+1+ri(2), sch.y+3, {type:"school", t:0, learned:false});
+    }
+    if(a.id===schoolTeacher && rnd()<0.7){
+      a.thought="off to hold class at the schoolhouse";
+      return goto(a, sch.doorX, sch.doorY, {type:"teachClass", t:0});
+    }
   }
   // socialise
   if(n.social<.55 && a.traits.social>rnd()*0.7){
@@ -1238,6 +1282,7 @@ function mergeHomes(a,b){
   if(!keep.owners.includes(b.id)) keep.owners.push(b.id);
   a.home=keep.id; b.home=keep.id;
   if(keep.stage==="done") keep.interior=furnish(keep);
+  houseNote(keep, `${a.name} and ${b.name} joined their lives here, day ${day()}.`);
   chron(`${a.name} and ${b.name} now share one roof.`);
 }
 function removeHouseClaim(h,a){
@@ -1467,6 +1512,59 @@ function updateAgent(a, dt){
       if(b.progress>=1){ finishCommunal(b); a.task=null; }
       break;
     }
+    case "school": {
+      t.t+=dt;
+      const teacher=agents.find(o=>o.alive&&o.task&&o.task.type==="teachClass");
+      if(teacher){
+        // taught class beats book-corner: the teacher's best craft rubs off, plus letters
+        let bd="lore",bv=0; for(const d in teacher.skills||{}) if(teacher.skills[d]>bv){bv=teacher.skills[d];bd=d;}
+        gainSkill(a,bd,dt*0.005); gainSkill(a,"lore",dt*0.004);
+        if(!t.learned){ t.learned=true; remember(a,`${teacher.name} taught us ${bd} at the schoolhouse.`); }
+      } else gainSkill(a,"lore",dt*0.0015);            // no teacher today — just the book corner
+      if(rnd()<dt*0.15) say(a,pick(["and then?","oh!","...seven?"]),2);
+      if(t.t>8+rnd()*4 || !marketOpen()) a.task=null;
+      break;
+    }
+    case "teachClass": {
+      t.t+=dt;
+      n.joy=clamp(n.joy+dt*0.03,0,1);
+      gainSkill(a,"lore",dt*0.002);
+      if(rnd()<dt*0.15) say(a,pick(["settle down","once more","well asked!"]),2.2);
+      if(t.t>9+rnd()*4 || !marketOpen()){
+        a.task=null;
+        if(rnd()<0.15) chron(`${a.name} held class at the schoolhouse — chalk dust, small questions, and one very good answer.`);
+      }
+      break;
+    }
+    case "deliverUpg": {
+      const hu=homeOf(a);
+      if(!hu||!hu.upg){ a.task=null; a.carrying=0; break; }
+      hu.upg.wood+=a.carrying; a.phys=(a.phys||0)+0.5+a.carrying*0.2; a.carrying=0; a.task=null;
+      break;
+    }
+    case "constructUpg": {
+      const hu=homeOf(a);
+      if(!hu||!hu.upg){ a.task=null; break; }
+      t.t=(t.t||0)+dt;
+      hu.upg.progress=clamp(hu.upg.progress + dt*0.05*(0.4+a.traits.industry*0.5+skillOf(a,"building")*0.9), 0, 1);
+      gainSkill(a,"building",dt*0.004); a.phys=(a.phys||0)+dt*0.6;
+      if(hu.upg.progress>=1){
+        hu.tier=Math.min(3,(hu.tier||1)+1);
+        // the hired builder gets paid; the household pays real coin
+        const owner=byId(hu.owners[0]);
+        if(owner){ owner.wealth=Math.max(0,(owner.wealth||0)-hu.upg.cost); }
+        if(hu.upg.builder && hu.upg.builder!==(owner&&owner.id)){
+          const bld=byId(hu.upg.builder);
+          if(bld){ bld.wealth=(bld.wealth||0)+4; remember(bld,`I was paid good coin to raise ${owner?owner.name+"'s":"a"} extension.`); }
+        }
+        hu.upg=null;
+        hu.interior=furnish(hu);   // an upgraded house gains furniture, keeps its heirlooms
+        houseNote(hu, `Rebuilt finer — ${hu.tier===2?"an improved cottage":"a fine townhouse"} — day ${day()}.`);
+        chron(`${owner?owner.name+"'s":"A"} cottage ${describeSpot(hu.x,hu.y)} was rebuilt finer — ${hu.tier===2?"a proper improved cottage now":"a fine townhouse, the envy of the lane"}.`, true);
+        a.task=null;
+      }
+      break;
+    }
     case "groom": {
       t.t+=dt;
       if(rnd()<dt*0.2) say(a,pick(["there.","hm — better","combs and cold water"]),2);
@@ -1523,8 +1621,10 @@ function slowPulse(){
     let failed=false;
     if(living.length>=9  && !houses.some(h=>h.kind==="tavern")) failed = !startCommunal("tavern") || failed;
     if(living.length>=14 && !houses.some(h=>h.kind==="market")) failed = !startCommunal("market") || failed;
+    if(living.length>=18 && !houses.some(h=>h.kind==="school")) failed = !startCommunal("school") || failed;
     if(failed) communalRetryAt = simTime + DAY;      // crowded map: back off a day, don't rescan every pulse
   }
+  if(schoolHouse() && day()!==teacherAt){ teacherAt=day(); pickTeacher(); }
   // every 10th day is a festival, announced at midday
   if(day()%10===0 && day()>=10 && festState.day!==day() && tod()>=0.45){
     festState={day:day(), name:FESTS[(Math.floor(day()/10)-1)%FESTS.length]};
@@ -1553,6 +1653,20 @@ function slowPulse(){
     // founding a business takes skill, savings, ambition, and a gap in the town (§21)
     if(a.career && !bizOf(a) && !a.worksFor && skillOf(a,a.career.domain)>0.6 && (a.wealth||0)>=12
        && !businesses.some(b=>b.domain===a.career.domain) && rnd()<0.08) foundBusiness(a);
+    // home improvement (§7): prosperity turns into better walls — via skill or a hired builder
+    const hh=homeOf(a);
+    if(hh && hh.stage==="done" && !hh.kind && !hh.upg && (hh.tier||1)<3
+       && hh.owners[0]===a.id && (a.wealth||0)>=(hh.tier||1)*10 && rnd()<0.04){
+      const canSelf = skillOf(a,"building")>0.3 || (a.partner&&skillOf(byId(a.partner)||{},"building")>0.3);
+      const builder = canSelf ? null
+        : agents.find(o=>o!==a&&o.alive&&isAdult(o)&&o.career&&o.career.domain==="building"&&skillOf(o,"building")>0.3);
+      if(canSelf || builder){
+        hh.upg={progress:0, wood:0, need:6, cost:(hh.tier||1)*6, builder:builder?builder.id:null};
+        chron(builder
+          ? `${a.name} hired ${builder.name} to rebuild the cottage finer — coin for craft.`
+          : `${a.name} started rebuilding the family cottage with their own hands.`);
+      }
+    }
   }
   // businesses that stop earning eventually shutter (§21)
   for(const b of businesses.slice()){
@@ -1593,6 +1707,7 @@ function slowPulse(){
           parents:[a.id,b.id], birthDay:day(),
         });
         inheritBrain(kid, a, b); // [brain] a value from each parent; sometimes a fear or quirk, sometimes mutated
+        houseNote(h, `${kid.name} was born under this roof, day ${day()}.`);
         kid.home=h.id;
         if(!h.owners.includes(kid.id)) h.owners.push(kid.id);
         chron(`A child is born to ${a.name} and ${b.name} — welcome, little ${kid.name}.`, true);
@@ -1616,6 +1731,14 @@ function slowPulse(){
       if(h) removeHouseClaim(h,a);   // clean the owner list; tear down an orphaned half-build
       // an heir can already own a business, so a person may die holding several — settle them ALL
       const heir=agents.find(o=>o!==a&&o.alive&&o.parents&&o.parents.includes(a.id)&&isAdult(o));
+      // the family cottage passes down too (§7) — if the heir has no roof of their own
+      if(h && h.stage==="done" && !h.kind && heir && !homeOf(heir)){
+        if(!h.owners.includes(heir.id)) h.owners.push(heir.id);
+        heir.home=h.id;
+        houseNote(h, `Passed to ${heir.name} when ${a.name} died, day ${day()}.`);
+        chron(`The cottage ${describeSpot(h.x,h.y)} passes to ${heir.name} — same walls, new footsteps.`);
+        remember(heir,`I inherited the family cottage.`);
+      }
       for(const biz of businesses.filter(x=>x.owner===a.id)){
         if(heir){ biz.owner=heir.id; chron(`${biz.name} passes to ${heir.name} — the sign stays, the hands change.`); remember(heir,`I inherited ${biz.name}.`); }
         else closeBusiness(biz,"its keeper passed on");
@@ -1964,6 +2087,22 @@ function drawHouse(h,night){
     if(season===3){ ctx.fillStyle="#e6ecee"; ctx.fillRect(wx-1,wy+6,7,1); }
     else { ctx.fillStyle= blooming ? bloom : "#3e5f3a"; ctx.fillRect(wx,wy+5,2,1); ctx.fillRect(wx+3,wy+5,2,1); }
   }
+  // tier marks (§7): dormer at 2, stone footing + gilt door trim at 3; scaffold cue mid-upgrade
+  if((h.tier||1)>=2){
+    ctx.fillStyle=st.roof; ctx.fillRect(px+6,py-1,8,7);
+    ctx.fillStyle="rgba(0,0,0,.2)"; ctx.fillRect(px+6,py-1,8,2);
+    ctx.fillStyle= night>0 ? "#f0c060" : "#20323e"; ctx.fillRect(px+8,py+2,4,3);
+  }
+  if((h.tier||1)>=3){
+    ctx.fillStyle="#8d8578"; ctx.fillRect(px+1,py+TILE*3-5,wpx-2,2);          // stone footing
+    ctx.fillStyle="#d8a24a"; ctx.fillRect(px+TILE+3,py+TILE*2-2,10,1);        // gilt lintel
+  }
+  if(h.upg){
+    ctx.strokeStyle="#8a734a"; ctx.lineWidth=1.5;
+    ctx.strokeRect(px+wpx-6,py+2,7,TILE*3-6);                                 // side scaffold
+    ctx.fillStyle="#8a6a3a";
+    for(let i=0;i<Math.min(h.upg.wood,6);i++) ctx.fillRect(px+wpx+2, py+TILE*3-4-i*3, 5,2);
+  }
   // lantern by the door (glow added in draw()'s light pass)
   ctx.fillStyle="#4a3f2c"; ctx.fillRect(px+TILE+14,py+TILE*2+3,1,7);
   ctx.fillStyle="#2f2a1e"; ctx.fillRect(px+TILE+13,py+TILE*2,3,4);
@@ -2042,6 +2181,9 @@ function drawSpecialBuilding(b,night){
   } else if(b.kind==="tavern"){
     ctx.fillStyle="#d8a24a"; ctx.fillRect(px+6,py+25,4,5); ctx.fillRect(px+10,py+26,1,3);
     ctx.fillStyle="#ece5d3"; ctx.fillRect(px+6,py+25,4,1);
+  } else if(b.kind==="school"){
+    ctx.fillStyle="#2c3a30"; ctx.fillRect(px+5,py+24,7,6);           // little slate
+    ctx.fillStyle="#ece5d3"; ctx.fillRect(px+6,py+26,5,1);
   } else {
     ctx.fillStyle="#d8a24a"; ctx.fillRect(px+7,py+25,3,3); ctx.fillRect(px+8,py+24,1,5);
   }
@@ -2216,17 +2358,19 @@ function renderInspector(){
   } else if(sel.kind==="house" && sel.h.kind){
     const b=sel.h;
     const cx=b.x+(b.w||4)/2, cy=b.y+1.5;
-    const here=agents.filter(o=>o.alive && !o.inside && dist(o.x,o.y,cx,cy)<4.5);
-    const title = b.kind==="tavern" ? b.name : "The Market Hall";
+    const here=agents.filter(o=>o.alive && !o.inside && dist(o.x,o.y,cx,cy)<4.5);   // inspector card list
+    const title = b.kind==="tavern" ? b.name : b.kind==="school" ? "The Schoolhouse" : "The Market Hall";
     const subtitle = b.kind==="tavern" ? "the town tavern — built by everyone, owned by everyone"
+                   : b.kind==="school" ? "the town school — letters and crafts, every morning"
                                        : "the town market — morning stalls, barter and gossip";
     el.innerHTML=`
       <h2>${esc(title)}</h2>
       <p class="sub">${b.stage==="done" ? subtitle : "under construction — "+Math.round(b.progress*100)+"% ("+b.woodHave+"/"+b.woodNeed+" timber) · a communal effort"} · ${describeSpot(b.x,b.y)}</p>
       ${b.stage==="done"?'<canvas class="interior" id="ccv" width="238" height="150"></canvas>':""}
-      <div class="secl">${b.stage==="done" ? (b.kind==="tavern"?"At the bar just now":"At the stalls just now") : "On the build crew"}</div>
+      <div class="secl">${b.stage==="done" ? (b.kind==="tavern"?"At the bar just now":b.kind==="school"?"In class just now":"At the stalls just now") : "On the build crew"}</div>
       <div class="kv">${here.length ? here.map(o=>{
           const doing = o.task ? ({tavern:"raising a mug",sell:"selling "+(o.task.ware||"wares"),buy:"browsing the stalls",
+            school:"at a desk, learning",teachClass:"holding class",
             deliverComm:"delivering timber",constructComm:"raising beams",chat:"deep in conversation",festival:"celebrating"})[o.task.type]||"passing through" : "passing through";
           return `<b>${esc(o.name)}</b> — ${doing}`;
         }).join("<br>") : (b.stage==="done" ? "empty just now — try "+(b.kind==="tavern"?"the evening":"the morning") : "waiting for hands and timber")}</div>
@@ -2235,10 +2379,12 @@ function renderInspector(){
   } else {
     const h=sel.h;
     const names=h.owners.map(id=>byId(id)?.name).filter(Boolean).join(" & ")||"an empty";
+    const tierWord=(h.tier||1)>=3?"townhouse":(h.tier||1)===2?"improved cottage":"cottage";
     el.innerHTML=`
-      <h2>${esc(names)}${names==="an empty"?"":"'s"} cottage</h2>
-      <p class="sub">${h.stage==="done"?"finished":"under construction — "+Math.round(h.progress*100)+"% ("+h.woodHave+"/"+h.woodNeed+" timber)"} · ${describeSpot(h.x,h.y)}</p>
-      ${h.stage==="done"?'<canvas class="interior" id="icv" width="238" height="150"></canvas><div class="secl">Inside</div><div class="kv" id="ilist"></div>':'<p class="kv">Scaffolding is up. The owner is hauling timber from the grove; the wood-pile tally sits by the frame.</p>'}`;
+      <h2>${esc(names)}${names==="an empty"?"":"'s"} ${tierWord}</h2>
+      <p class="sub">${h.stage==="done"?(h.upg?"being rebuilt finer — "+Math.round(h.upg.progress*100)+"%":"finished"):"under construction — "+Math.round(h.progress*100)+"% ("+h.woodHave+"/"+h.woodNeed+" timber)"} · ${describeSpot(h.x,h.y)}</p>
+      ${h.stage==="done"?'<canvas class="interior" id="icv" width="238" height="150"></canvas><div class="secl">Inside</div><div class="kv" id="ilist"></div>':'<p class="kv">Scaffolding is up. The owner is hauling timber from the grove; the wood-pile tally sits by the frame.</p>'}
+      ${(h.history&&h.history.length)?`<div class="secl">House history</div><div class="kv">${h.history.slice(-5).map(esc).join("<br>")}</div>`:""}`;
     if(h.stage==="done") drawInterior(h);
   }
 }
@@ -2334,6 +2480,11 @@ function drawCommunalInterior(b){
     p.fillStyle="#6b4f2e"; p.fillRect(40,70,50,26); p.fillRect(140,86,50,26);
     p.fillStyle="#e07a3a"; p.fillRect(208,18,18,20);
     p.fillStyle="#f0c060"; p.fillRect(214,24,6,9);
+  } else if(b.kind==="school"){
+    p.fillStyle="#2c3a30"; p.fillRect(64,10,110,34);                 // slate board
+    p.fillStyle="#ece5d3"; p.fillRect(74,20,26,2); p.fillRect(74,26,40,2); p.fillRect(74,32,18,2);
+    p.fillStyle="#5a4026"; for(let r=0;r<2;r++) for(let c=0;c<3;c++) p.fillRect(30+c*66,68+r*36,40,14);  // desks
+    p.fillStyle="#8a6a3a"; p.fillRect(104,48,30,12);                 // teacher's table
   } else {
     for(let i=0;i<3;i++){
       p.fillStyle="#5a4026"; p.fillRect(16+i*76,30,56,20);
@@ -2341,7 +2492,7 @@ function drawCommunalInterior(b){
     }
   }
   const cx=b.x+(b.w||4)/2, cy=b.y+1.5;
-  const here=agents.filter(o=>o.alive&&!o.inside&&o.task&&["tavern","sell","buy","festival","chat"].includes(o.task.type)&&dist(o.x,o.y,cx,cy)<4.5);
+  const here=agents.filter(o=>o.alive&&!o.inside&&o.task&&["tavern","sell","buy","festival","chat","school","teachClass"].includes(o.task.type)&&dist(o.x,o.y,cx,cy)<4.5);
   let i=0;
   for(const o of here.slice(0,8)){
     const x= b.kind==="tavern" ? 52+(i%3)*50+((i/3)|0)*10 : 32+(i%3)*76+((i/3)|0)*12;
@@ -2422,7 +2573,7 @@ function openFamilyTree(){
 
 /* ============================== persistence (§36: versioned saves) ============================== */
 const SAVE_KEY="emberhollow-save";
-const SAVE_V=2;
+const SAVE_V=3;
 const AGENT_FIELDS=["id","name","hue","skin","hair","x","y","home","carrying","partner","parents",
   "birthDay","lifespan","memories","thought","likes","traits","needs","brain","chatTurns",
   "skills","wealth","knows","career","careerAt","body","phys","groom","wardrobe","bodyAt","worksFor"];
@@ -2459,6 +2610,11 @@ function migrateSave(d){
     d.businesses ??= [];
     d.econ ??= {foodPrice:1, sold:0, hungry:0, priceAt:0};
     d.v=2;
+  }
+  if(d.v===2){
+    // v3 adds house tiers, upgrades-in-progress, and per-house family history
+    for(const h of d.houses){ h.tier ??= 1; h.history ??= []; h.upg ??= null; }
+    d.v=3;
   }
   if(d.v===SAVE_V) return d;
   throw new Error("save version "+d.v+" is newer than this build");

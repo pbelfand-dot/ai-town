@@ -8,6 +8,24 @@ specialist agents (design-director + design-critic, sim-ai-engineer,
 character-brain-keeper, town-code-reviewer) defined in `.claude/agents/`.
 See `COMMAND_CENTER.md` for the org chart and working agreement.
 
+## Round 5 (Homes with History & the Schoolhouse — phases 12 & 13)
+
+- **Housing evolves (§7)**: cottages upgrade to improved cottages and
+  townhouses when prosperity, skill (or a paid builder) and fresh timber
+  meet — dormers, stone footings, gilt lintels appear on the sprite, and
+  upgraded homes gain furniture while keeping their heirlooms.
+- **Houses remember (§7)**: every home keeps a written history — ground
+  broken, roofs raised, children born under it, couples joining their lives,
+  inheritances — shown in the cottage inspector like a family deed. The
+  family cottage passes to an heir who lacks a roof.
+- **The schoolhouse (§15)**: the town's third communal build rises when the
+  children are many. A teacher is chosen daily from the most knowing free
+  adults; mornings fill with letters and crafts, pupils carry home memories
+  of who taught them what. Knowledge → learning → teachers → school,
+  in dependency order.
+- Save schema **v3** (migrated), suite now **12/12** including the housing
+  upgrade path and school-teaching acceptance tests.
+
 ## Round 4 (Bodies, Wardrobes & the Coin — phases 7 & 11)
 
 - **Bodies from lifestyle (§9)**: labor accumulates real exertion; a daily

@@ -187,8 +187,8 @@ variety. LOD last, after systems stabilize.
 | 9 | Inheritance/teaching/lineage | ✅ lineage + teaching + brain/skill inheritance shipped |
 | 10 | Knowledge/recipes/discovery | ✅ foundational cut shipped (person-to-person only) |
 | 11 | Economy/businesses | ✅ supply/demand food price, business founding/failure/inheritance, apprentice employment; multi-good prices & shops next |
-| 12 | Construction/expansion | 📋 |
-| 13 | Institutions | 📋 |
+| 12 | Construction/expansion | ✅ housing tiers 1–3, hired builders, heirloom furniture, house histories, cottage inheritance |
+| 13 | Institutions | ✅ schoolhouse shipped (daily teacher, morning classes); healthcare/civic next |
 | 14 | Government/laws | 📋 (emerges from pressures, never population thresholds) |
 | 15 | Technology/culture | 📋 (prerequisite graph, no year-gates) |
 | 16 | LOD / large populations | 📋 (byId→Map, sprite persistence, aggregate settlements) |
