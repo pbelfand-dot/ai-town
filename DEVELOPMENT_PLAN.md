@@ -189,10 +189,16 @@ variety. LOD last, after systems stabilize.
 | 11 | Economy/businesses | ✅ supply/demand food price, business founding/failure/inheritance, apprentice employment; multi-good prices & shops next |
 | 12 | Construction/expansion | ✅ housing tiers 1–3, hired builders, heirloom furniture, house histories, cottage inheritance |
 | 13 | Institutions | ✅ schoolhouse shipped (daily teacher, morning classes); healthcare/civic next |
-| 14 | Government/laws | 📋 (emerges from pressures, never population thresholds) |
-| 15 | Technology/culture | 📋 (prerequisite graph, no year-gates) |
-| 16 | LOD / large populations | 📋 (byId→Map, sprite persistence, aggregate settlements) |
-| 17 | LLM decision routing | 📋 (importance classifier; budgets; `sample` stays viewer-action-only until then) |
+| 14 | Government/laws | ✅ foundational: civic pressure from real events → moot → election → Speaker → laws that change real parameters; terms, succession |
+| 15 | Technology/culture | ✅ foundational: writing from mastery+school prerequisite; Town Book makes knowledge outlive knowers; festivals as living tradition |
+| 16 | LOD / large populations | ✅ groundwork: O(1) agent index, pop 40, bounded arrays; aggregate settlements when multi-settlement lands |
+| 17 | LLM decision routing | ✅ foundational: routing architecture live (utility AI for ALL sim; model calls only viewer-triggered high-value moments) with pluggable backends — Claude in the viewer, local Ollama on a local file, none otherwise |
+
+**The Master Directive's 17-phase roadmap is complete at foundational depth**
+(2026-09-02, 15/15 acceptance tests). Every phase now exists as a real,
+interacting system; deepening continues per the medium/long-term lists above
+(multi-good economy, clothing fashion cycles, protests & varied government
+forms, tech beyond writing, true LOD, richer LLM routing).
 
 Implementation proceeds autonomously in phase order; stops only for destructive
 credentials, irreversible data loss, or unresolvable ambiguity.

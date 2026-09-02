@@ -182,9 +182,78 @@ const snap = p => p.evaluate(`(${function () {
   report('schoolhouse teaches the young', school.skip ? 'skip' : (school.grew || school.taught),
     school.skip ? 'no room for a schoolhouse' : `lore ${school.lore1}${school.taught ? ', remembers the lesson' : ''}`);
 
-  // ── 11. No page errors across the whole run ──
+  // ── 11. Government emerges from pressure, not population thresholds (§22) ──
+  const gov = await a.evaluate(`(${function () {
+    const eh = window.__eh;
+    while (eh.agents.length < 13) makeAgent({ birthDay: -20 });   // a town big enough to argue
+    civic.pressure = 8;                                            // grievances accumulated
+    for (let i = 0; i < 30 && !civic.leaderId; i++) eh.step(30);
+    const ld = civic.leaderId && eh.agents.find(x => x.id === civic.leaderId);
+    return { leader: ld ? ld.name : null, form: civic.form, laws: civic.laws.map(l => l.id) };
+  }})()`);
+  report('election: pressure → moot → Speaker → law', !!gov.leader && gov.laws.length >= 1,
+    gov.leader ? `Speaker ${gov.leader}, law: ${gov.laws.join(',')}` : 'no leader elected');
+
+  // ── 12. Writing needs prerequisites and makes knowledge durable (§19/§15) ──
+  const writ = await a.evaluate(`(${function () {
+    const eh = window.__eh;
+    let sch = eh.houses.find(h => h.kind === 'school');
+    if (!sch) { sch = startCommunal('school'); if (sch) sch.stage = 'done'; }
+    if (!sch) return { skip: true };
+    const sage = eh.agents[0];
+    sage.skills.lore = 0.9;
+    RECIPES.bread ??= { id: 'bread', name: 'river bread', base: true, discoveredBy: sage.name, day: eh.day() };
+    learnRecipe(sage, 'bread');
+    for (let i = 0; i < 30 && !(eh.tech.writing && eh.townBook.length); i++) eh.step(20);
+    return { skip: false, writing: eh.tech.writing, book: eh.townBook.slice(), by: eh.tech.writerName };
+  }})()`);
+  report('writing invented from mastery+school; Town Book holds knowledge',
+    writ.skip ? 'skip' : (writ.writing && writ.book.length >= 1),
+    writ.skip ? 'no room for a school' : `invented by ${writ.by}; book: ${writ.book.join(',')}`);
+
+  // ── 13. No page errors across the whole run ──
   report('zero runtime errors', a._errors.length === 0, a._errors.slice(0, 3).join(' | ') || 'clean console');
   await a.close();
+}
+
+// ── 12. Local AI adapter speaks to a local model server (mock Ollama) ──
+{
+  const { createServer } = await import('node:http');
+  const mock = createServer((req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+    if (req.url === '/api/tags') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ models: [{ name: 'llama3.2:mock' }] }));
+    } else if (req.url === '/api/chat') {
+      res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+      res.write(JSON.stringify({ message: { content: 'Well met, ' } }) + '\n');
+      setTimeout(() => {
+        res.write(JSON.stringify({ message: { content: 'traveler.' } }) + '\n');
+        res.end(JSON.stringify({ done: true }) + '\n');
+      }, 60);
+    } else { res.writeHead(404); res.end(); }
+  });
+  await new Promise((ok, no) => { mock.on('error', no); mock.listen(11434, ok); }).catch(() => null);
+  if (mock.listening) {
+    const p = await browser.newPage();
+    p.on('pageerror', () => {});
+    await p.goto(URL);
+    await p.waitForFunction('window.__eh');
+    const backend = await p.waitForFunction('window.__eh.ai', { timeout: 8000 }).then(
+      () => p.evaluate('__eh.ai'), () => null);
+    let answer = null;
+    if (backend && backend.kind === 'ollama')
+      answer = await p.evaluate('__eh.askAi("hello").then(r=>r.text).catch(e=>"ERR:"+(e&&e.code))');
+    report('local AI adapter (mock Ollama end-to-end)',
+      !!backend && backend.kind === 'ollama' && answer === 'Well met, traveler.',
+      backend ? `${backend.kind}/${backend.name} → "${answer}"` : 'backend never initialized');
+    await p.close();
+    await new Promise(ok => mock.close(ok));
+  } else {
+    report('local AI adapter (mock Ollama end-to-end)', 'skip', 'port 11434 unavailable in this environment');
+  }
 }
 
 await browser.close();

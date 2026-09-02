@@ -123,6 +123,7 @@
     <span class="pill" id="clock">Day 1 &middot; morning</span>
     <span class="pill">souls <b id="pop">0</b></span>
     <span class="pill">cottages <b id="hcount">0</b></span>
+    <span class="pill" id="civicPill" hidden>&#9878; <b id="civicName"></b></span>
     <span id="speedbox">
       <button data-s="0" title="pause">&#10073;&#10073;</button><button data-s="1" class="on">1&times;</button><button data-s="4">4&times;</button><button data-s="12">12&times;</button>
     </span>
@@ -530,12 +531,16 @@ function makeAgent(opts={}){
   a.worksFor = null;
   refreshGoal(a);
   agents.push(a);
+  agentIndex.set(a.id, a);
   lineage.push({id:a.id, name:a.name, parents:(a.parents||[]).slice(), partner:null, born:a.birthDay, died:null});
   // trim the registry without ever evicting founders (roots anchor the family tree)
   if(lineage.length>400){ const i=lineage.findIndex(l=>l.parents.length); if(i>=0) lineage.splice(i,1); }
   return a;
 }
-const byId = id => agents.find(a=>a.id===id) || null;
+// §28 scale groundwork: byId is called from hot paths (glow pass, careers,
+// relationships) — an index keeps it O(1) as the population grows.
+const agentIndex=new Map();
+const byId = id => agentIndex.get(id) || null;
 const ageOf = a => day() - a.birthDay;
 const isAdult = a => ageOf(a) >= 6;
 const isElder = a => ageOf(a) >= 46;
@@ -556,7 +561,7 @@ function houseSpotScore(a,bx,by){
   let s = 0;
   for(const h of houses){
     const d = dist(bx,by,h.x,h.y);
-    if(d<5) return -1e9;                                  // breathing room
+    if(d<(civic.closePlots?4:5)) return -1e9;             // breathing room (a law can tighten it)
     const friendly = h.owners.some(id=>{ const r=a.rel.get(id); return r && r.aff>2; });
     if(friendly) s += a.traits.social*14/Math.max(3,d);
     else s -= (1-a.traits.social)*6/Math.max(3,d);
@@ -600,7 +605,11 @@ function houseStyleFor(a){
 }
 function startHouse(a){
   const spot = chooseHouseSpot(a);
-  if(!spot) return null;
+  if(!spot){
+    // no land — that is a civic matter (§22)
+    if(!civic.landPinch){ civic.landPinch=true; civicPressure(2,"no good land left to build on"); }
+    return null;
+  }
   const [bx,by]=spot;
   const h = { id:nextHouse++, x:bx, y:by, owners:[a.id], stage:"building", progress:0,
               woodNeed:10, woodHave:0, style:houseStyleFor(a), interior:null,
@@ -851,6 +860,67 @@ function closeBusiness(b,why){
   chron(`${b.name} has shuttered — ${why}.`);
   if(o) remember(o,`${b.name} closed. ${why}.`);
 }
+
+/* ============================== civic life (§22): government EMERGES from need ==============================
+   No "population hits N ⇒ spawn mayor". Real events — price spikes, land running
+   out, feuds festering, an empty chair — accumulate civic PRESSURE; enough
+   pressure calls a moot, the moot votes, the Speaker answers the pressure with
+   a law, and laws change real simulation parameters. */
+const civic={pressure:0, form:null, leaderId:0, electedDay:0, laws:[], mootDay:0,
+             landPinch:false, grudgeAt:0, closePlots:false, sharedTable:false};
+function civicPressure(amt,why){
+  civic.pressure=Math.min(20,civic.pressure+amt);
+  if(rnd()<0.3) chron(`Grumbling in the lanes about ${why}.`);
+}
+function holdElection(living){
+  civic.mootDay=0;
+  const adults=living.filter(a=>isAdult(a));
+  if(adults.length<4){ civic.pressure=Math.max(0,civic.pressure-3); return; }
+  const standScore=c=> c.traits.social*1.5 + skillOf(c,"lore") + Math.min(1,(c.wealth||0)/15)*0.5
+    + [...c.rel.values()].reduce((s,r)=>s+Math.max(0,r.aff),0)/40;
+  const cands=adults.slice().sort((p,q)=>standScore(q)-standScore(p)).slice(0,3);
+  const votes=new Map(cands.map(c=>[c.id,0]));
+  for(const v of adults){
+    let best=null,bs=-1e9;
+    for(const c of cands){
+      if(c===v){ if(bs<2){bs=2;best=c;} continue; }        // most stand by themselves
+      const r=v.rel.get(c.id);
+      const sv=(v.brain&&c.brain)?v.brain.values.filter(x=>c.brain.values.includes(x)).length:0;
+      const s=((r&&r.aff)||0)*0.5 + sv*0.8 + skillOf(c,"lore")*0.6 + rnd()*0.8;
+      if(s>bs){bs=s;best=c;}
+    }
+    if(best) votes.set(best.id, votes.get(best.id)+1);
+  }
+  let win=cands[0],wv=-1; for(const c of cands) if(votes.get(c.id)>wv){wv=votes.get(c.id);win=c;}
+  civic.form="speaker"; civic.leaderId=win.id; civic.electedDay=day(); civic.pressure=0;
+  chron(`ELECTION at the well. ${cands.map(c=>c.name).join(", ")} stood; the town voted with raised hands. ${win.name} is Emberhollow's Speaker, ${wv} hands high.`, true);
+  toast(`⚖ ${win.name} is the town's Speaker`);
+  remember(win,"the town chose me as its Speaker.");
+  for(const c of cands) if(c!==win) remember(c,`I stood for Speaker; the town chose ${win.name}.`);
+  passLaw(win);
+}
+function passLaw(sp){
+  let law;
+  if(econ.foodPrice>=3 && !civic.laws.some(l=>l.id==="pricecap"))
+    law={id:"pricecap", text:"No meal shall cost more than 2 coins while stores run low.",
+         apply:()=>{ econ.maxPrice=2; econ.foodPrice=Math.min(econ.foodPrice,2); }};
+  else if(civic.landPinch && !civic.laws.some(l=>l.id==="landrule"))
+    law={id:"landrule", text:"Plots may stand a stride closer together, that all may build.",
+         apply:()=>{ civic.closePlots=true; civic.landPinch=false; }};
+  else if(!civic.laws.some(l=>l.id==="sharedtable"))
+    law={id:"sharedtable", text:"Every festival shall end with a shared table — no one eats alone that night.",
+         apply:()=>{ civic.sharedTable=true; }};
+  if(!law) return;
+  law.apply();
+  civic.laws.push({id:law.id, text:law.text, day:day(), by:sp.name});
+  chron(`By common assent, Speaker ${sp.name} set ${civic.laws.length===1?"the town's first law":"a new law"}: “${law.text}”${tech.writing?" It was written into the Town Book.":""}`, true);
+}
+
+/* ============================== technology (§19): prerequisites, not year-gates ==============================
+   Writing needs a master of lore AND a school to keep it in. Once it exists it
+   changes society: recipes copied into the Town Book can outlive their knowers. */
+const tech={writing:false, writerName:null};
+const townBook=[];   // recipe ids written down at the school
 
 const FESTS=["the Harvest Fair","River Lantern Night","Founders' Day"];
 let festState={day:0, name:null};
@@ -1503,6 +1573,7 @@ function updateAgent(a, dt){
       n.social=clamp(n.social+dt*0.03,0,1);
       if(rnd()<dt*0.2) say(a, pick(["✦","♪","to Emberhollow!","what a night!"]),2.6);
       a.phys=(a.phys||0)+dt*0.08;                        // dancing counts a little
+      if(civic.sharedTable) n.food=clamp(n.food+dt*0.02,0,1);   // the shared-table law feeds the fair
       if(rnd()<dt*0.5){
         const o=agents.find(o=>o!==a && o.alive && o.task && o.task.type==="festival" && !o.task.locked && dist(a.x,a.y,o.x,o.y)<3);
         if(o){ startChat(a,o); break; }
@@ -1534,6 +1605,11 @@ function updateAgent(a, dt){
         gainSkill(a,bd,dt*0.005); gainSkill(a,"lore",dt*0.004);
         if(!t.learned){ t.learned=true; remember(a,`${teacher.name} taught us ${bd} at the schoolhouse.`); }
       } else gainSkill(a,"lore",dt*0.0015);            // no teacher today — just the book corner
+      // written knowledge (§15): the Town Book teaches whoever sits with it
+      if(tech.writing && townBook.length && rnd()<dt*0.03){
+        const bid=townBook.find(x=>!(a.knows||[]).includes(x));
+        if(bid){ learnRecipe(a,bid); remember(a,`I learned ${RECIPES[bid]?.name||"a recipe"} from the Town Book.`); }
+      }
       if(rnd()<dt*0.15) say(a,pick(["and then?","oh!","...seven?"]),2);
       if(t.t>8+rnd()*4 || !marketOpen()) a.task=null;
       break;
@@ -1637,6 +1713,47 @@ function slowPulse(){
     if(failed) communalRetryAt = simTime + DAY;      // crowded map: back off a day, don't rescan every pulse
   }
   if(schoolHouse() && day()!==teacherAt){ teacherAt=day(); pickTeacher(); }
+  // civic pressure from festering feuds (§22) — checked once a day
+  if(day()!==civic.grudgeAt){
+    civic.grudgeAt=day();
+    let feuds=0;
+    for(const a of living) for(const [id,r] of a.rel) if(r.aff<-1 && a.id<id && byId(id)) feuds++;
+    if(feuds>=2) civicPressure(0.7,"old feuds festering");
+    // a standing Speaker's term runs ~24 days; then the town votes again
+    if(civic.form && day()-civic.electedDay>=24 && !civic.mootDay){
+      civic.mootDay=day()+1;
+      chron(`Speaker ${byId(civic.leaderId)?.name||"—"}'s term is spent. Tomorrow the town gathers to choose again.`, true);
+    }
+  }
+  // enough pressure calls a moot; the moot votes (§22)
+  if(!civic.form && civic.pressure>=6 && living.length>=12 && !civic.mootDay){
+    civic.mootDay=day()+1;
+    chron("Talk at the well has turned serious: tomorrow the town gathers to choose a Speaker — someone to answer for prices, plots and peace.", true);
+    toast("⚖ The town will choose a Speaker tomorrow");
+  }
+  if(civic.mootDay && day()>=civic.mootDay && tod()>0.45) holdElection(living);
+  // §19: writing emerges from mastery + the school, then knowledge starts outliving people
+  if(!tech.writing && schoolHouse()){
+    const scribe=living.find(a=>skillOf(a,"lore")>0.75);
+    if(scribe && rnd()<0.1){
+      tech.writing=true; tech.writerName=scribe.name;
+      chron(`${scribe.name} has worked out WRITING — marks that hold words. The school will keep a Town Book; what is written can outlive its knower.`, true);
+      toast(`✶ ${scribe.name} invented writing`);
+      remember(scribe,"I found the way of writing. Words that keep.");
+      gainSkill(scribe,"lore",0.1);
+    }
+  }
+  if(tech.writing && rnd()<0.2){
+    const s=living.find(a=>skillOf(a,"lore")>0.4 && (a.knows||[]).some(id=>!townBook.includes(id)));
+    if(s){
+      const id=(s.knows||[]).find(x=>!townBook.includes(x));
+      if(id){
+        townBook.push(id);
+        chron(`${s.name} copied the way of ${RECIPES[id]?.name||id} into the Town Book at the school.`);
+        remember(s,`I wrote ${RECIPES[id]?.name||"a recipe"} into the Town Book.`);
+      }
+    }
+  }
   // every 10th day is a festival, announced at midday
   if(day()%10===0 && day()>=10 && festState.day!==day() && tod()>=0.45){
     festState={day:day(), name:FESTS[(Math.floor(day()/10)-1)%FESTS.length]};
@@ -1688,9 +1805,10 @@ function slowPulse(){
   // prices breathe with supply and demand (§20)
   if(day()-(econ.priceAt||0)>=1){
     econ.priceAt=day();
-    if(econ.hungry>econ.sold && econ.foodPrice<3){
+    if(econ.hungry>econ.sold && econ.foodPrice<(econ.maxPrice||3)){
       econ.foodPrice++;
       chron(`Bread is selling for far too much — ${econ.foodPrice} coins a meal, and folk grumble at the stalls.`);
+      if(econ.foodPrice>=(econ.maxPrice||3)) civicPressure(2,"the price of bread");
     } else if(econ.sold>econ.hungry*2 && econ.foodPrice>1){
       econ.foodPrice--;
       chron(`Prices at the market eased back to ${econ.foodPrice} coin${econ.foodPrice>1?"s":""} a meal.`);
@@ -1706,7 +1824,7 @@ function slowPulse(){
     if(a.brain && rnd()<0.1) checkGoal(a);
   }
   // children
-  if(living.length<30){
+  if(living.length<40){
     for(const a of living){
       if(!a.partner || a.id>a.partner) continue;
       const b=byId(a.partner); if(!b||!b.alive) continue;
@@ -1756,8 +1874,14 @@ function slowPulse(){
         if(heir){ biz.owner=heir.id; chron(`${biz.name} passes to ${heir.name} — the sign stays, the hands change.`); remember(heir,`I inherited ${biz.name}.`); }
         else closeBusiness(biz,"its keeper passed on");
       }
+      if(civic.leaderId===a.id){
+        civic.form=null; civic.leaderId=0;
+        civicPressure(5,"the Speaker's chair sitting empty");
+        chron(`The Speaker's chair is empty — ${a.name} answered for the town, and now the town must answer for itself again.`, true);
+      }
       chron(`${a.name} passed away peacefully at ${ageOf(a)} days old, after a full Emberhollow life. A stone was raised.`, true);
       agents.splice(agents.indexOf(a),1);
+      agentIndex.delete(a.id);
       if(sel&&sel.kind==="agent"&&sel.a===a){ sel=null; renderInspector(); }
     }
   }
@@ -2349,7 +2473,7 @@ function renderInspector(){
         <div>
           <h2>${esc(a.name)}</h2>
           <p class="sub">${stageOf(a)} · ${ageOf(a)} days old</p>
-          <div class="chips">${a.brain?`<span class="chip warm">✦ ${esc(ARCHES[a.brain.arch].name)}</span>`:""}${topTraits(a).map(t=>`<span class="chip warm">${t}</span>`).join("")}${a.likes.map(l=>`<span class="chip">${LIKE_ICON[l]||""} ${l}</span>`).join("")}</div>
+          <div class="chips">${civic.leaderId===a.id?'<span class="chip warm">⚖ Speaker</span>':""}${a.brain?`<span class="chip warm">✦ ${esc(ARCHES[a.brain.arch].name)}</span>`:""}${topTraits(a).map(t=>`<span class="chip warm">${t}</span>`).join("")}${a.likes.map(l=>`<span class="chip">${LIKE_ICON[l]||""} ${l}</span>`).join("")}</div>
         </div>
       </div>
       ${a.brain?`<p class="kv" style="margin:6px 0 0">${esc(a.brain.backstory)}</p><p class="kv" style="font-style:italic;color:var(--faint);margin:2px 0 0">the neighbours have noticed: ${esc(a.brain.quirk.split(" ").slice(0,3).join(" "))}…</p>`:""}
@@ -2591,13 +2715,16 @@ function openFamilyTree(){
 
 /* ============================== persistence (§36: versioned saves) ============================== */
 const SAVE_KEY="emberhollow-save";
-const SAVE_V=3;
+const SAVE_V=4;
 const AGENT_FIELDS=["id","name","hue","skin","hair","x","y","home","carrying","partner","parents",
   "birthDay","lifespan","memories","thought","likes","traits","needs","brain","chatTurns",
   "skills","wealth","knows","career","careerAt","body","phys","groom","wardrobe","bodyAt","worksFor"];
 function serializeGame(){
   return {
     v:SAVE_V, savedAt:Date.now(), simTime, nextId, nextHouse, nextBiz,
+    civic:{...civic, laws:civic.laws.slice()},
+    tech:{...tech},
+    townBook: townBook.slice(),
     econ:{...econ},
     businesses: businesses.map(b=>({...b})),
     rng:{sim:rngSim.s, weather:rngWeather.s},
@@ -2634,6 +2761,14 @@ function migrateSave(d){
     for(const h of d.houses){ h.tier ??= 1; h.history ??= []; h.upg ??= null; }
     d.v=3;
   }
+  if(d.v===3){
+    // v4 adds civic life (government/laws), technology (writing), and the Town Book
+    d.civic ??= {pressure:0, form:null, leaderId:0, electedDay:0, laws:[], mootDay:0,
+                 landPinch:false, grudgeAt:0, closePlots:false, sharedTable:false};
+    d.tech ??= {writing:false, writerName:null};
+    d.townBook ??= [];
+    d.v=4;
+  }
   if(d.v===SAVE_V) return d;
   throw new Error("save version "+d.v+" is newer than this build");
 }
@@ -2660,6 +2795,9 @@ function loadGame(){
   try{
     simTime=d.simTime; nextId=d.nextId; nextHouse=d.nextHouse;
     nextBiz=d.nextBiz||((d.businesses||[]).reduce((m,b)=>Math.max(m,b.id+1),1));
+    Object.assign(civic, d.civic||{}); civic.laws=(d.civic&&d.civic.laws)||[];
+    Object.assign(tech, d.tech||{});
+    townBook.length=0; for(const id of d.townBook||[]) townBook.push(id);
     Object.assign(econ, d.econ||{foodPrice:1,sold:0,hungry:0,priceAt:0});
     businesses.length=0; for(const b of d.businesses||[]) businesses.push(b);
     rngSim.s=d.rng.sim|0; rngWeather.s=d.rng.weather|0; _rngCur=rngSim;
@@ -2672,10 +2810,10 @@ function loadGame(){
     houses.length=0; for(const h of d.houses) houses.push(h);
     graves.length=0; for(const g of d.graves) graves.push(g);
     lineage.length=0; for(const l of d.lineage) lineage.push(l);
-    agents.length=0;
+    agents.length=0; agentIndex.clear();
     for(const s of d.agents){
       s.rel=new Map(s.rel); s.task=null; s.path=null; s.say=null; s.inside=false; s.alive=true;
-      agents.push(s);
+      agents.push(s); agentIndex.set(s.id, s);
     }
     if(typeof RECIPES!=="undefined" && d.recipes){ for(const k in RECIPES) delete RECIPES[k]; Object.assign(RECIPES,d.recipes); }
     chronEntries.length=0;
@@ -2725,20 +2863,99 @@ window.__eh={
   save:()=>saveGame(), load:()=>loadGame(), serialize:()=>serializeGame(),
   get agents(){return agents;}, get houses(){return houses;}, get lineage(){return lineage;},
   get recipes(){return (typeof RECIPES!=="undefined")?RECIPES:null;},
+  get civic(){return civic;}, get tech(){return tech;}, get townBook(){return townBook;},
+  get ai(){ return aiBackend ? {kind:aiBackend.kind, name:aiBackend.name} : null; },
+  askAi:(q,o)=> aiBackend ? aiBackend.ask(q,o) : Promise.reject({code:"none"}),
   day, tod, setSpeed(s){ speed=s; },
 };
 
-/* ============================== Claude minds (sample) ============================== */
-let sampleFn=null, sampleGone=false, askCtl=null;
-(async ()=>{
-  try{ if(window.claude?.use) sampleFn = await window.claude.use("sample"); }catch(e){}
+/* ============================== live AI voices — backend adapter (§25–26) ==============================
+   ROUTING ARCHITECTURE: every routine decision in this file is deterministic
+   utility AI — no language model is ever called from the sim loop or a timer.
+   Only rare, high-value, viewer-triggered moments (interviewing a villager,
+   asking the chronicler to write) consult a model, through ONE backend picked
+   at load:
+     1. Claude, via the artifact `sample` capability (page open in the viewer)
+     2. A LOCAL model via Ollama at http://localhost:11434 (page opened as a
+        local file — run `OLLAMA_ORIGINS="*" ollama serve` so the browser may ask)
+     3. None — the voice features hide themselves; the town runs on its own. */
+let sampleFn=null, sampleGone=false, askCtl=null, aiBackend=null;
+async function initAiBackends(){
+  try{
+    if(window.claude?.use){
+      const s = await window.claude.use("sample");
+      if(s){
+        sampleFn=s;
+        aiBackend={kind:"claude", name:"Claude",
+          ask:(input,o={})=>s(input,{modelTier:"quick",cache:false,signal:o.signal,onText:o.onText})};
+        updateAiUi(); return;
+      }
+    }
+  }catch(e){}
+  // Not in the viewer — probe for a local Ollama. Under the viewer's CSP this
+  // fetch fails instantly and harmlessly; on a local file it reaches localhost.
+  try{
+    const to = AbortSignal.timeout ? AbortSignal.timeout(1500) : undefined;
+    const r = await fetch("http://localhost:11434/api/tags",{signal:to});
+    if(r.ok){
+      const tags=await r.json();
+      const models=(tags.models||[]).map(m=>m.name);
+      const model=models.find(m=>/llama|qwen|mistral|gemma|phi/i.test(m))||models[0];
+      if(model){
+        aiBackend={kind:"ollama", name:model, ask:(input,o)=>ollamaAsk(model,input,o)};
+        toast(`✦ Local AI voices ready — ${model} via Ollama`);
+      }
+    }
+  }catch(e){}
   updateAiUi();
-})();
+}
+async function ollamaAsk(model,input,o={}){
+  const messages = typeof input==="string" ? [{role:"user",content:input}]
+    : input.map(t=>({role:t.role,content:t.content}));
+  let res;
+  try{
+    res = await fetch("http://localhost:11434/api/chat",{
+      method:"POST", signal:o.signal,
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model, messages, stream:true, options:{num_predict:220}}),
+    });
+  }catch(e){
+    if(e && e.name==="AbortError") throw {code:"cancelled", message:"aborted"};
+    throw {code:"upstream_error", message:String(e&&e.message||e)};
+  }
+  if(!res.ok || !res.body) throw {code:"upstream_error", message:"ollama HTTP "+res.status};
+  const reader=res.body.getReader(), dec=new TextDecoder();
+  let buf="", text="";
+  try{
+    for(;;){
+      const {done,value}=await reader.read();
+      if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      let nl;
+      while((nl=buf.indexOf("\n"))>=0){
+        const line=buf.slice(0,nl).trim(); buf=buf.slice(nl+1);
+        if(!line) continue;
+        try{
+          const j=JSON.parse(line);
+          const d=j.message && j.message.content;
+          if(d){ text+=d; if(o.onText) o.onText({text, delta:d}); }
+        }catch(e){}
+      }
+    }
+  }catch(e){
+    if(e && e.name==="AbortError") throw {code:"cancelled", message:"aborted", text};
+    throw {code:"upstream_error", message:String(e&&e.message||e), text};
+  }
+  if(!text.trim()) throw {code:"empty_completion", message:"the local model wrote nothing"};
+  return {text};
+}
+const aiAvailable = () => !!aiBackend && !(aiBackend.kind==="claude" && sampleGone);
+initAiBackends();
 function updateAiUi(){
   const b=document.getElementById('aiSum');
-  if(b) b.hidden=!sampleFn||sampleGone;
+  if(b) b.hidden=!aiAvailable();
   const note=document.getElementById('ainote');
-  if(note && (!sampleFn||sampleGone)) note.textContent="Live AI voices need this page opened in the Claude viewer — the town still runs on its own here.";
+  if(note && !aiAvailable()) note.textContent="Live AI voices need the Claude viewer, or Ollama running locally (OLLAMA_ORIGINS=\"*\" ollama serve) — the town still runs on its own here.";
 }
 const ERRCOPY={
   rate_limited:"Claude needs a breather — try again in a minute.",
@@ -2767,6 +2984,7 @@ ${A?`You are ${A.name} of this town — ${A.essence}.`:""} ${B?`Your story: ${B.
 How you speak — obey these strictly: ${B?B.voice.join("; "):"warm, a little rustic"}.
 You are a ${stageOf(a)}, ${ageOf(a)} days old; ${topTraits(a).join(" and ")}; you love ${a.likes.join(", ")}.${B?` You hold dear: ${B.values.join(" and ")}. A private fear (only mention if it truly fits): ${B.fear}. A habit of yours: ${B.quirk}.`:""}
 ${B&&B.goal?`Your current hope: ${B.goal.text}.`:""} You are ${wealthWord(a)}${a.career?`, working as a ${a.career.job}`:""}${(()=>{const bz=bizOf(a); if(bz) return `, and you run ${bz.name}`; const w=businesses.find(x=>x.id===a.worksFor); return w?`, employed at ${w.name}`:"";})()}. In body you are ${buildWord(a)}, ${groomWord(a)}.${skl?` Your craft: ${skl}.`:""}${dishes?` Dishes you know the way of: ${dishes}.`:""}
+${civic.leaderId===a.id?`The town elected you its Speaker on day ${civic.electedDay}. Laws under your name: ${civic.laws.map(l=>`“${l.text}”`).join(" ")||"none yet"}. You carry that weight in how you speak. `:""}${tech.writing&&tech.writerName===a.name?"You are the one who invented writing here; you are quietly proud of the Town Book. ":""}
 ${B?`You have a secret: ${B.secret} — you NEVER volunteer it; deflect gently unless this person has clearly earned deep trust across the conversation.`:""}
 Home: ${h ? (h.stage==="done"?"your finished cottage "+describeSpot(h.x,h.y):"a half-built cottage you're still raising") : "none yet; you sleep under the stars"}.
 ${a.partner?`Your partner is ${byId(a.partner)?.name||"gone now"}. `:""}${friends.length?`Friends: ${friends.join(", ")}. `:""}${rival?`You and ${rival.o.name} rub each other the wrong way. `:""}${drawn?`Lately you find your eyes following ${drawn.name}, though you'd not say it plainly. `:""}
@@ -2785,8 +3003,10 @@ function renderChatLog(a){
 }
 function wireAsk(a){
   const input=document.getElementById('askin'), btn=document.getElementById('askgo'), note=document.getElementById('ainote');
-  if(!sampleFn||sampleGone){ input.disabled=true; btn.disabled=true; updateAiUi(); return; }
-  note.textContent="Answers come from Claude, in character, using "+a.name+"'s real memories from this run. First use asks your permission.";
+  if(!aiAvailable()){ input.disabled=true; btn.disabled=true; updateAiUi(); return; }
+  note.textContent = aiBackend.kind==="claude"
+    ? "Answers come from Claude, in character, using "+a.name+"'s real memories from this run. First use asks your permission."
+    : "Answers come from "+aiBackend.name+" running on THIS machine — in character, using "+a.name+"'s real memories. Nothing leaves your computer.";
   const send=async ()=>{
     const q=input.value.trim(); if(!q||btn.disabled) return;
     input.value=""; btn.disabled=true;
@@ -2798,7 +3018,7 @@ function wireAsk(a){
     askCtl?.abort();                       // supersede any stream still running for another villager
     const ctl=new AbortController(); askCtl=ctl;
     try{
-      const {text}=await sampleFn(turns,{modelTier:"quick",cache:false,signal:ctl.signal,
+      const {text}=await aiBackend.ask(turns,{signal:ctl.signal,
         onText:({text})=>{bubble.textContent=text; log.scrollTop=log.scrollHeight;}});
       bubble.textContent=text;
       a.chatTurns.push({role:"assistant",content:text});
@@ -2818,7 +3038,7 @@ function wireAsk(a){
   input.onkeydown=e=>{ if(e.key==="Enter") send(); };
 }
 document.getElementById('aiSum').addEventListener('click', async ()=>{
-  if(!sampleFn||sampleGone) return;
+  if(!aiAvailable()) return;
   const btn=document.getElementById('aiSum'); btn.disabled=true;
   const d=day();
   const ev=chronEntries.filter(e=>e.day>=d-1).slice(-18).map(e=>`Day ${e.day}: ${e.txt}`).join("\n")||"A quiet day of walking, building and small talk.";
@@ -2826,11 +3046,11 @@ document.getElementById('aiSum').addEventListener('click', async ()=>{
   const ent=document.createElement('div'); ent.className='ent ai'; ent.textContent="✒ the chronicler dips their pen…";
   log.prepend(ent);
   try{
-    const {text}=await sampleFn(
+    const {text}=await aiBackend.ask(
 `You are the town chronicler of Emberhollow, a small self-running village. Write ONE storybook chronicle entry (3–5 sentences, warm, specific, slightly wry) about the recent happenings below. Use the villagers' names. Reply with only the entry text.
 
 ${ev}`,
-      {modelTier:"quick",cache:false,onText:({text})=>{ent.textContent=text;}});
+      {onText:({text})=>{ent.textContent=text;}});
     ent.textContent=text;
   }catch(e){
     ent.textContent=sampleErr(e.code);
@@ -2861,6 +3081,8 @@ function frame(now){
       `Day ${day()} &middot; ${todName()} <span class="glyphs">${SEASON_GLYPH[season]}${wg?" "+wg:""}</span>`;
     document.getElementById('pop').textContent=agents.length;
     const hc=document.getElementById('hcount'); if(hc) hc.textContent=houses.filter(h=>h.stage==="done"&&!h.kind).length;
+    const cp=document.getElementById('civicPill'), cn=document.getElementById('civicName');
+    if(cp&&cn){ const ld=civic.leaderId?byId(civic.leaderId):null; cp.hidden=!ld; if(ld) cn.textContent="Speaker "+ld.name; }
   }
   if(now>autoSaveAt){ autoSaveAt=now+60000; if(speed>0) saveGame(); }   // quiet minute-wise auto-save
   draw();

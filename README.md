@@ -139,5 +139,28 @@ entirely on its built-in utility AI.
 - **Locally**: open `index.html` in any browser. (The file is authored in Claude's
   artifact format — no `<html>/<head>` wrapper — which browsers render fine.)
 
+## Run it locally on a Mac (fully offline, no Claude)
+
+The entire civilization is plain JavaScript — nothing ever leaves your machine.
+
+1. Get the file: `git clone https://github.com/pbelfand-dot/ai-town` (or download
+   `index.html` from the repo).
+2. Double-click `index.html` — opens in Safari/Chrome and runs. Saves live in
+   that browser (💾 save / ⭯ load in the header, plus a quiet auto-save).
+
+**Optional — local AI voices** (villager interviews + the chronicle button,
+powered by a model on YOUR Mac instead of Claude):
+
+1. Install [Ollama](https://ollama.com) (`brew install ollama` or the app).
+2. Pull a small model: `ollama pull llama3.2` (any Llama/Qwen/Mistral/Gemma/Phi works).
+3. Start it so the browser may talk to it: `OLLAMA_ORIGINS="*" ollama serve`
+4. Reload the local `index.html` — a toast confirms
+   *"Local AI voices ready — llama3.2 via Ollama"*, and interviews stream from
+   your own hardware. (Apple-silicon Macs run 3B models very comfortably.)
+
+Backend routing (§25–26): Claude `sample` in the viewer → local Ollama on a
+local file → none (features hide; the town runs regardless). The simulation
+itself NEVER calls any model.
+
 Controls: drag to pan · scroll to zoom · click a villager or cottage ·
 speed controls (pause / 1× / 4× / 12×) in the header.

@@ -17,8 +17,9 @@ north star; `DEVELOPMENT_PLAN.md` for current state and roadmap.
 - **NPCs are data.** One brain object per villager (`a.brain`) is the single
   source of truth for both utility behavior and the live Claude interviews
   (`personaPrompt`). Never fork that.
-- The `sample` capability (live AI voices) is called ONLY from explicit viewer
-  actions — never from the sim loop or timers.
+- Live AI voices route through ONE backend adapter (`aiBackend`): Claude
+  `sample` in the viewer, local Ollama on a local file, none otherwise — and
+  are called ONLY from explicit viewer actions, never the sim loop or timers.
 
 ## Hard rules
 
