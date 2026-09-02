@@ -187,8 +187,13 @@ const RIVER_X = y => Math.round(W*0.5 + Math.sin(y*0.21)*3.2);
 const BRIDGE_YS = [19,20,45,46];             // two crossings: the old bridge and the south span
 const PLAZA = {x:31.5, y:21.5};
 // the four lamp posts of the era-3 square, in world pixels (ground + light pass)
-const SQUARE_LAMPS = () => { const wx=PLAZA.x*TILE, wy=PLAZA.y*TILE, o=TILE*3;
-  return [[wx-o,wy-o],[wx+o,wy-o],[wx-o,wy+o],[wx+o,wy+o]]; };
+const SQUARE_LAMPS = (()=>{ const wx=PLAZA.x*TILE, wy=PLAZA.y*TILE, o=TILE*3;
+  return Object.freeze([[wx-o,wy-o],[wx+o,wy-o],[wx-o,wy+o],[wx+o,wy+o]]); })();
+// bridge lamp heads (era 3) — same geography constants, computed once
+const BRIDGE_LAMPS = (()=>{ const out=[];
+  for(const y of BRIDGE_YS){ const cx=RIVER_X(y);
+    for(let x=cx-1;x<=cx+1;x++) if((x+y)%5===0) out.push([x*TILE+8,y*TILE+3]); }
+  return Object.freeze(out); })();
 const G_GRASS=0, G_WATER=1, G_BRIDGE=2, G_GRAVE=3;
 const ground = new Uint8Array(W*H);
 const solid  = new Uint8Array(W*H);   // 1 = cannot walk
@@ -2135,8 +2140,8 @@ function drawGround(){
   const wx=PLAZA.x*TILE, wy=PLAZA.y*TILE;
   if(town.era>=2){
     const R = town.era>=3 ? 4.6 : 3.2;                   // paved radius, in tiles
-    for(let ty=Math.ceil(PLAZA.y-R); ty<=Math.floor(PLAZA.y+R); ty++)
-      for(let tx=Math.ceil(PLAZA.x-R); tx<=Math.floor(PLAZA.x+R); tx++){
+    for(let ty=Math.floor(PLAZA.y-R); ty<=Math.ceil(PLAZA.y+R); ty++)
+      for(let tx=Math.floor(PLAZA.x-R); tx<=Math.ceil(PLAZA.x+R); tx++){
         if(!inb(tx,ty) || ground[K(tx,ty)]!==G_GRASS) continue;
         if(dist(tx+0.5,ty+0.5,PLAZA.x,PLAZA.y)>R) continue;
         const ppx=tx*TILE, ppy=ty*TILE;
@@ -2150,7 +2155,7 @@ function drawGround(){
     gctx.fillStyle="#3a6a84"; gctx.fillRect(wx-6,wy-1,4,2); gctx.fillRect(wx+2,wy-1,4,2);
     gctx.fillStyle="#9b948a"; gctx.fillRect(wx-2,wy-5,4,6);
     gctx.fillStyle="#d8e6ec"; gctx.fillRect(wx-1,wy-6,2,2);
-    if(town.era>=3) for(const [lx,ly] of SQUARE_LAMPS()){
+    if(town.era>=3) for(const [lx,ly] of SQUARE_LAMPS){
       gctx.fillStyle="#2f2a1e"; gctx.fillRect(lx-1,ly-8,2,10);
       gctx.fillStyle="#d8a24a"; gctx.fillRect(lx-2,ly-12,4,4);
     }
@@ -2158,7 +2163,7 @@ function drawGround(){
       gctx.beginPath(); gctx.arc(wx,wy,11,Math.PI*1.05,Math.PI*1.95); gctx.stroke(); }
     // open-air marketplace: striped stalls on the square's east edge
     for(let i=0;i<3;i++){
-      const sx=wx+TILE*2+4, sy=wy-TILE*2 + i*Math.round(TILE*1.6);
+      const sx=wx+Math.round(TILE*(town.era>=3?2:1.4))+4, sy=wy-TILE*2 + i*Math.round(TILE*1.6);
       gctx.fillStyle="#5a4026"; gctx.fillRect(sx,sy+8,2,6); gctx.fillRect(sx+12,sy+8,2,6);
       gctx.fillStyle="#7a5a34"; gctx.fillRect(sx-1,sy+7,16,3);
       gctx.fillStyle=["#c65a6e","#d8a24a","#84b06a"][i]; gctx.fillRect(sx-2,sy,18,4);
@@ -2303,7 +2308,10 @@ function draw(){
         }
       }
     }
-    if(town.era>=3) for(const [lx,ly] of SQUARE_LAMPS()) drawGlow(lx,ly-10,13,night);  // the square's lamps
+    if(town.era>=3){
+      for(const [lx,ly] of SQUARE_LAMPS) drawGlow(lx,ly-10,13,night);   // the square's lamps
+      for(const [lx,ly] of BRIDGE_LAMPS) drawGlow(lx,ly,10,night*0.8);  // and the bridges'
+    }
     if(night>0.45 && season!==3 && (atmo.state==="clear"||atmo.state==="drizzle")){
       for(const p of fPool){
         const tr=trees[p.t];
@@ -2556,7 +2564,7 @@ function drawHouse(h,night){
   if(mat===3){  // city quoins + a second window row under the eaves
     ctx.fillStyle="#8d8578";
     ctx.fillRect(px+1,py+8,2,TILE*3-8); ctx.fillRect(px+wpx-3,py+8,2,TILE*3-8);
-    for(const wx2 of [px+5, px+wpx-10]){
+    if(st.roofShape!=="round") for(const wx2 of [px+5, px+wpx-10]){   // the dome would swallow this row
       ctx.fillStyle="#3a2f1e"; ctx.fillRect(wx2-1,py+9,6,4);
       ctx.fillStyle= night>0 ? "#f0c060" : "#20323e"; ctx.fillRect(wx2,py+10,4,2);
     }
@@ -2629,7 +2637,7 @@ function drawHouse(h,night){
     ctx.fillStyle= night>0 ? "#f0c060" : "#20323e"; ctx.fillRect(dmx+2,py+2,4,3);
   }
   if((h.tier||1)>=3){
-    ctx.fillStyle="#8d8578";                                                  // stone footing, skipping the door
+    ctx.fillStyle= mat>=2 ? "#6b665c" : "#8d8578";   // stone footing, skipping the door — darker on stone walls so the tier mark survives
     ctx.fillRect(px+1,py+TILE*3-5,TILE+2,2);
     ctx.fillRect(px+TILE+13,py+TILE*3-5,wpx-TILE-14,2);
   }
