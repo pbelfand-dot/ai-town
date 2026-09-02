@@ -417,7 +417,7 @@ function rollAttract(){
   return {
     warmth: rnd()*2-0.5, humor: rnd()*1.6-0.4, industry: rnd()*1.6-0.5,
     artistry: rnd()*1.6-0.5, status: rnd()*1.4-0.6, adventurousness: rnd()*1.6-0.6,
-    familiarity: 0.3+rnd()*1.2,
+    familiarity: 0.3+rnd()*1.2, presentation: rnd()*1.6-0.4,
   };
 }
 function attractionScore(a,b){
@@ -425,8 +425,9 @@ function attractionScore(a,b){
   const t=b.traits; let s=0;
   s+=w.warmth*(t.social*0.4+(b.brain&&b.brain.values.includes("kindness")?0.3:0));
   s+=w.humor*((b.brain&&b.brain.arch==="ember")?0.5:t.openness*0.25);
-  s+=w.industry*t.industry*0.45;
+  s+=w.industry*(t.industry*0.35+((b.body&&b.body.str)??0.4)*0.15);
   s+=w.artistry*t.artistry*0.45;
+  s+=(w.presentation||0)*((b.groom??0.5)*0.5);   // grooming is seen — by those who care
   s+=w.status*Math.min(1,(b.wealth||0)/16)*0.6;
   s+=w.adventurousness*(t.openness*0.25+t.nature*0.3);
   const r=a.rel.get(b.id);
@@ -523,6 +524,10 @@ function makeAgent(opts={}){
   a.wealth = isAdult(a) ? 4+ri(6) : 0;
   a.knows = [];
   a.career = null;          // chosen properly in slowPulse via considerCareer (§14)
+  a.body = {str:0.2+a.traits.industry*0.25+rnd()*0.15, fit:0.35+rnd()*0.25, mass:0.4+rnd()*0.25};
+  a.phys = 0; a.groom = 0.35+rnd()*0.4;
+  a.wardrobe = {festival: isAdult(a)&&rnd()<0.25};
+  a.worksFor = null;
   refreshGoal(a);
   agents.push(a);
   lineage.push({id:a.id, name:a.name, parents:(a.parents||[]).slice(), partner:null, born:a.birthDay, died:null});
@@ -704,6 +709,7 @@ const CAREERS=[
   {domain:"lore",     job:"chartwright", ware:"star charts"},
   {domain:"trading",  job:"peddler",     ware:"odds and ends"},
   {domain:"building", job:"builder",     ware:"mended stools"},
+  {domain:"crafting", job:"tailor",      ware:"festival sashes"},
 ];
 const DOMAIN_APT={farming:"nature",cooking:"tidy",building:"industry",fishing:"nature",
   crafting:"artistry",trading:"social",music:"artistry",lore:"openness"};
@@ -717,8 +723,9 @@ function chooseCareer(a){
     const workers=agents.filter(o=>o!==a&&o.career&&o.career.domain===c.domain).length;
     const demand=clamp(1-workers/3,0,1);
     const need=(a.wealth||0)<3?0.7:0;
+    const payPull=(c.domain==="cooking"||c.domain==="farming"||c.domain==="fishing") ? (econ.foodPrice-1)*0.5 : 0;
     const s= interest*3 + apt*1.2 + skillOf(a,c.domain)*2 + fam*0.8 + mentor*0.5
-           + demand*1.1 + need + rnd()*0.6;
+           + demand*1.1 + need + payPull + rnd()*0.6;
     if(s>bs){bs=s;best=c;}
   }
   return best;
@@ -792,6 +799,52 @@ function shareRecipe(from,to,how){
 
 /* WEALTH (§20 seed): small, physical-ish; earned selling, spent eating and celebrating. */
 const wealthWord = a => (a.wealth||0)<3?"poor":(a.wealth||0)<10?"getting by":(a.wealth||0)<20?"comfortable":"prosperous";
+
+/* ============================== bodies, grooming, wardrobes (§8–§11) ============================== */
+/* Bodies respond GRADUALLY to lifestyle — labor accumulates a.phys, and a daily
+   drift moves strength/fitness toward the lived activity level. Never a random flip. */
+function driftBody(a, act){          // act 0..1 = yesterday's physical exertion
+  const b=a.body; if(!b) return;
+  const target=clamp(0.15+act*0.8,0,1);
+  b.str += (target-b.str)*0.06;
+  b.fit += (target*0.9+0.1-b.fit)*0.05;
+  b.mass += ((0.55-act*0.3)-b.mass)*0.03;
+  if(isElder(a)){ b.str*=0.995; b.fit*=0.995; }
+  b.str=clamp(b.str,0.05,1); b.fit=clamp(b.fit,0.05,1); b.mass=clamp(b.mass,0.1,1);
+}
+const buildWord = a => !a.body?"—":a.body.str>0.65?"strong from the work":a.body.str<0.28?"wiry":"sturdy";
+const groomWord = a => (a.groom??0.5)>0.7?"well-kept":(a.groom??0.5)<0.3?"a bit unkempt":"tidy enough";
+/* Wardrobes (§8): looks are composable at draw time, never baked into a sprite.
+   Workwear derives from the trade; festival sashes are bought from a tailor —
+   fiber→tailor→clothing→fashion begins as an actual market chain. */
+const WORK_LOOK={cooking:"#e8dfc8", farming:"#5b7a42", fishing:"#3d5666", building:"#7a5a34",
+  crafting:"#8a6a8f", trading:"#a08040", music:null, lore:null};
+
+/* ============================== prices & businesses (§20–21) ============================== */
+const econ={foodPrice:1, sold:0, hungry:0, priceAt:0};
+const businesses=[];   // {id,name,owner,domain,founded,earn,earnAt}
+let nextBiz=1;
+const bizOf = a => businesses.find(b=>b.owner===a.id) || null;
+const BIZ_NOUN={cooking:"Ovens",farming:"Garden",fishing:"Nets",crafting:"Workshop",
+  trading:"Goods",music:"Songhouse",lore:"Charts",building:"Timberworks"};
+function foundBusiness(a){
+  const d=a.career.domain;
+  const b={id:nextBiz++, name:`${a.name}'s ${BIZ_NOUN[d]||"Trade"}`, owner:a.id, domain:d,
+           founded:day(), earn:0, earnAt:day()};
+  businesses.push(b);
+  a.wealth=Math.max(0,(a.wealth||0)-8);                  // setting up costs real savings
+  chron(`${a.name} put down 8 hard-saved coins and hung a sign: ${b.name} is open for business.`, true);
+  remember(a,`I founded ${b.name}.`);
+  toast(`✦ ${b.name} is open for business`);
+  return b;
+}
+function closeBusiness(b,why){
+  businesses.splice(businesses.indexOf(b),1);
+  for(const o of agents) if(o.worksFor===b.id) o.worksFor=null;
+  const o=byId(b.owner);
+  chron(`${b.name} has shuttered — ${why}.`);
+  if(o) remember(o,`${b.name} closed. ${why}.`);
+}
 
 const FESTS=["the Harvest Fair","River Lantern Night","Founders' Day"];
 let festState={day:0, name:null};
@@ -983,6 +1036,13 @@ function chooseTask(a){
       if(t){ a.thought=`cutting timber for the town ${cb.kind}`; return goto(a,t.x,t.y,{type:"chop",tree:t}); }
     } else { a.thought=`raising beams at the ${cb.kind}`; return goto(a,cb.doorX,cb.doorY,{type:"constructComm",b:cb.id}); }
   }
+  // §11 appearanceInvestment: making oneself presentable costs real morning time
+  if((a.groom??0.5)<0.4 && tod()>0.2 && tod()<0.36 && rnd()<0.35){
+    const gs = (h&&h.stage==="done") ? [h.doorX,h.doorY]
+             : [Math.round(48+Math.sin(Math.floor(a.y)*0.21)*3.2)-2, Math.floor(a.y)];
+    a.thought="making myself presentable";
+    return goto(a, gs[0], gs[1], {type:"groom", t:0});
+  }
   // curiosity in the kitchen: experimenting is how dishes get DISCOVERED (§17)
   if(h && h.stage==="done" && isAdult(a) && !isNight() && a.traits.openness>0.45
      && (skillOf(a,"cooking")>0.12 || a.likes.includes("baking")) && rnd()<0.05){
@@ -1152,6 +1212,15 @@ function endTeach(teacher){
   const ra=rel(teacher,learner.id), rb=rel(learner,teacher.id);
   ra.aff=clamp(ra.aff+.4,-3,14); rb.aff=clamp(rb.aff+.6,-3,14);
   if(domain==="cooking"&&rnd()<0.6) shareRecipe(teacher,learner,"taught");
+  // a master with a business may take the apprentice on (§21)
+  if(!learner.parents.includes(teacher.id)){
+    const biz=bizOf(teacher);
+    if(biz && biz.domain===domain && !learner.worksFor && learner.career && learner.career.domain===domain && rnd()<0.4){
+      learner.worksFor=biz.id;
+      chron(`${learner.name} now works at ${biz.name}.`);
+      remember(learner,`${teacher.name} took me on at ${biz.name}.`);
+    }
+  }
   if(rnd()<0.25){
     const kid=learner.parents.includes(teacher.id);
     chron(kid ? `${teacher.name} spent the afternoon teaching ${learner.name} ${domain} — the family way, passed down.`
@@ -1186,6 +1255,7 @@ function updateAgent(a, dt){
   n.food  =clamp(n.food   - dt*0.010, 0, 1);
   n.social=clamp(n.social - dt*0.0075*(0.4+a.traits.social), 0, 1);
   n.joy   =clamp(n.joy    - dt*0.0065, 0, 1);
+  a.groom=clamp((a.groom??0.5) - dt*0.0025, 0, 1);   // presentation fades without care (§11)
   if(a.say && simTime>a.say.until) a.say=null;
 
   if(!a.task){ chooseTask(a); return; }
@@ -1226,6 +1296,7 @@ function updateAgent(a, dt){
         solid[K(t.tree.x,t.tree.y)]=0;
         a.carrying=Math.min(4,a.carrying+2);
         gainSkill(a,"building",0.008);
+        a.phys=(a.phys||0)+2;                            // axe work builds a body (§9)
         a.task=null;
       }
       break;
@@ -1233,7 +1304,7 @@ function updateAgent(a, dt){
     case "deliver": {
       const h=homeOf(a);
       if(!h||h.stage!=="building"){ a.task=null; a.carrying=0; break; }
-      h.woodHave+=a.carrying; a.carrying=0; a.task=null;
+      h.woodHave+=a.carrying; a.phys=(a.phys||0)+0.5+a.carrying*0.2; a.carrying=0; a.task=null;
       break;
     }
     case "construct": {
@@ -1241,7 +1312,7 @@ function updateAgent(a, dt){
       if(!h||h.stage!=="building"){ a.task=null; break; }
       t.t+=dt;
       h.progress=clamp(h.progress + dt*0.04*(0.4+a.traits.industry*0.5+skillOf(a,"building")*0.9), 0, 1);
-      gainSkill(a,"building",dt*0.004);
+      gainSkill(a,"building",dt*0.004); a.phys=(a.phys||0)+dt*0.6;
       if(h.progress>=1) { finishHouse(h); a.task=null; }
       break;
     }
@@ -1251,7 +1322,7 @@ function updateAgent(a, dt){
         if(t.bush.berries){
           t.bush.berries=false; t.bush.regrow=simTime+DAY*0.8;
           n.food=clamp(n.food+0.45+skillOf(a,"farming")*0.3,0,1);   // a practiced hand gathers more
-          gainSkill(a,"farming",0.012);
+          gainSkill(a,"farming",0.012); a.phys=(a.phys||0)+0.3;
         }
         a.task=null;   // a bush someone else emptied feeds no one
       }
@@ -1304,12 +1375,24 @@ function updateAgent(a, dt){
         if(s){
           n.joy=clamp(n.joy+.08,0,1);
           s.needs.joy=clamp(s.needs.joy+.1,0,1);
-          if((a.wealth||0)>0){ a.wealth--; s.wealth=(s.wealth||0)+1; }   // coin actually moves (§20)
+          // coin moves at the going price (§20); a business collects its keeper's takings
+          const pay=Math.min(a.wealth||0, econ.foodPrice);
+          a.wealth=(a.wealth||0)-pay; s.wealth=(s.wealth||0)+pay;
+          econ.sold++;
+          const biz=businesses.find(x=>x.id===s.worksFor) || bizOf(s);
+          if(biz && pay){ biz.earn+=pay; biz.earnAt=day(); const ow=byId(biz.owner); if(ow&&ow!==s) ow.wealth=(ow.wealth||0)+1; }
+          // the tailor's stall also sells festival wear — clothing becomes an economy (§8)
+          if(s.career&&s.career.job==="tailor" && !(a.wardrobe&&a.wardrobe.festival) && (a.wealth||0)>=3){
+            a.wealth-=3; s.wealth+=3;
+            a.wardrobe={...(a.wardrobe||{}), festival:true};
+            remember(a,`I bought my first festival sash from ${s.name}.`);
+            if(rnd()<.5) chron(`${a.name} bought a festival sash from ${s.name} — you'll know them at the next fair.`);
+          }
           gainSkill(s,"trading",0.01);
           say(s, pick(["for you!","fresh this morning!","take two!"]),2.4);
           say(a,"mm!",2);
-          if(rnd()<.1) chron(`${s.name} the ${s.task.job} traded ${s.task.ware} to ${a.name} for a coin and a favour owed.`);
-        }
+          if(rnd()<.1) chron(`${s.name} the ${s.task.job} traded ${s.task.ware} to ${a.name} for ${econ.foodPrice} coin${econ.foodPrice>1?"s":""} and a favour owed.`);
+        } else econ.hungry++;                            // demand nobody met — prices notice
         a.task=null;
       }
       break;
@@ -1355,6 +1438,7 @@ function updateAgent(a, dt){
       n.joy=clamp(n.joy+dt*0.05,0,1);
       n.social=clamp(n.social+dt*0.03,0,1);
       if(rnd()<dt*0.2) say(a, pick(["✦","♪","to Emberhollow!","what a night!"]),2.6);
+      a.phys=(a.phys||0)+dt*0.08;                        // dancing counts a little
       if(rnd()<dt*0.5){
         const o=agents.find(o=>o!==a && o.alive && o.task && o.task.type==="festival" && !o.task.locked && dist(a.x,a.y,o.x,o.y)<3);
         if(o){ startChat(a,o); break; }
@@ -1365,7 +1449,7 @@ function updateAgent(a, dt){
     case "deliverComm": {
       const b=houses.find(x=>x.id===t.b);
       if(!b || b.stage!=="building"){ a.task=null; a.carrying=0; break; }
-      b.woodHave+=a.carrying; a.carrying=0; a.task=null;
+      b.woodHave+=a.carrying; a.phys=(a.phys||0)+0.5+a.carrying*0.2; a.carrying=0; a.task=null;
       break;
     }
     case "constructComm": {
@@ -1373,8 +1457,14 @@ function updateAgent(a, dt){
       if(!b || b.stage!=="building"){ a.task=null; break; }
       t.t=(t.t||0)+dt;
       b.progress=clamp(b.progress + dt*0.04*(0.4+a.traits.industry*0.5+skillOf(a,"building")*0.9), 0, 1);
-      gainSkill(a,"building",dt*0.004);
+      gainSkill(a,"building",dt*0.004); a.phys=(a.phys||0)+dt*0.6;
       if(b.progress>=1){ finishCommunal(b); a.task=null; }
+      break;
+    }
+    case "groom": {
+      t.t+=dt;
+      if(rnd()<dt*0.2) say(a,pick(["there.","hm — better","combs and cold water"]),2);
+      if(t.t>3){ a.groom=0.9; n.joy=clamp(n.joy+.06,0,1); a.task=null; }
       break;
     }
     case "experiment": {
@@ -1452,6 +1542,27 @@ function slowPulse(){
     if(!isAdult(a)) continue;
     if(!a.career){ considerCareer(a); a.careerAt=day(); }
     else if(day()-(a.careerAt||0)>=10){ a.careerAt=day(); if(rnd()<0.35) considerCareer(a); }
+    // daily body drift from yesterday's labor (§9) — gradual, never a flip
+    if(day()-(a.bodyAt||0)>=1){ a.bodyAt=day(); driftBody(a, clamp((a.phys||0)/14,0,1)); a.phys=(a.phys||0)*0.25; }
+    // founding a business takes skill, savings, ambition, and a gap in the town (§21)
+    if(a.career && !bizOf(a) && !a.worksFor && skillOf(a,a.career.domain)>0.6 && (a.wealth||0)>=12
+       && !businesses.some(b=>b.domain===a.career.domain) && rnd()<0.08) foundBusiness(a);
+  }
+  // businesses that stop earning eventually shutter (§21)
+  for(const b of businesses.slice()){
+    if(day()-b.earnAt>12 && rnd()<0.3) closeBusiness(b,"custom dried up");
+  }
+  // prices breathe with supply and demand (§20)
+  if(day()-(econ.priceAt||0)>=1){
+    econ.priceAt=day();
+    if(econ.hungry>econ.sold && econ.foodPrice<3){
+      econ.foodPrice++;
+      chron(`Bread is selling for far too much — ${econ.foodPrice} coins a meal, and folk grumble at the stalls.`);
+    } else if(econ.sold>econ.hungry*2 && econ.foodPrice>1){
+      econ.foodPrice--;
+      chron(`Prices at the market eased back to ${econ.foodPrice} coin${econ.foodPrice>1?"s":""} a meal.`);
+    }
+    econ.sold=0; econ.hungry=0;
   }
   // households quietly pass knowledge along; hopes resolve into memories
   for(const a of living){
@@ -1497,6 +1608,12 @@ function slowPulse(){
       if(inb(g[0],g[1])&&ground[K(g[0],g[1])]===G_GRASS){ ground[K(g[0],g[1])]=G_GRAVE; graves.push({x:g[0],y:g[1],name:a.name}); groundDirty=true; }
       if(a.partner){ const p=byId(a.partner); if(p){ p.partner=null; remember(p,`${a.name} passed on. The cottage is quieter now.`); } }
       if(h) removeHouseClaim(h,a);   // clean the owner list; tear down an orphaned half-build
+      const biz=bizOf(a);
+      if(biz){
+        const heir=agents.find(o=>o!==a&&o.alive&&o.parents&&o.parents.includes(a.id)&&isAdult(o));
+        if(heir){ biz.owner=heir.id; chron(`${biz.name} passes to ${heir.name} — the sign stays, the hands change.`); remember(heir,`I inherited ${biz.name}.`); }
+        else closeBusiness(biz,"its keeper passed on");
+      }
       chron(`${a.name} passed away peacefully at ${ageOf(a)} days old, after a full Emberhollow life. A stone was raised.`, true);
       agents.splice(agents.indexOf(a),1);
       if(sel&&sel.kind==="agent"&&sel.a===a){ sel=null; renderInspector(); }
@@ -1938,17 +2055,27 @@ function drawAgent(a){
   ctx.restore();
   ctx.save(); ctx.translate(px,py+bob); ctx.scale(sc,sc);
   const bodyCol=hsl(a.hue, elder?18:42, elder?52:48);
+  const broad = a.body && a.body.str>0.7 ? 1 : 0;        // a laborer's frame, earned gradually (§9)
   // legs — alternate on the walk phase
   ctx.fillStyle="#2c2620";
   if(walking){ ctx.fillRect(-3,1+st,2,3-st); ctx.fillRect(1,1-st,2,3+st); }
   else { ctx.fillRect(-3,1,2,3); ctx.fillRect(1,1,2,3); }
   // body
-  ctx.fillStyle=bodyCol; ctx.fillRect(-4,-6,8,7);
-  ctx.fillStyle="rgba(0,0,0,.15)"; ctx.fillRect(-4,-1,8,2);          // tunic hem shade
+  ctx.fillStyle=bodyCol; ctx.fillRect(-4-broad,-6,8+broad*2,7);
+  ctx.fillStyle="rgba(0,0,0,.15)"; ctx.fillRect(-4-broad,-1,8+broad*2,2);   // tunic hem shade
+  // clothing layers (§8): workwear while working, a festival sash when celebrating
+  const tt=a.task&&a.task.type;
+  const dom=a.career&&a.career.domain;
+  if(dom && WORK_LOOK[dom] && (tt==="sell"||tt==="chop"||tt==="construct"||tt==="constructComm"||tt==="deliver"||tt==="deliverComm")){
+    ctx.fillStyle=WORK_LOOK[dom]; ctx.fillRect(-3,-4,6,4);                  // apron / smock
+    if(dom==="building"){ ctx.fillStyle="#3a2f1e"; ctx.fillRect(-4-broad,-2,8+broad*2,1); }  // tool belt
+  } else if(tt==="festival" && a.wardrobe && a.wardrobe.festival){
+    ctx.fillStyle=hsl((a.hue+180)%360,68,62); ctx.fillRect(-4-broad,-5,8+broad*2,2);         // bought sash
+  }
   // arms — swing opposite the legs; raised when carrying
   ctx.fillStyle=bodyCol;
-  if(a.carrying>0){ ctx.fillRect(-5,-8,2,4); ctx.fillRect(3,-8,2,4); }
-  else { ctx.fillRect(-5,-5+st,2,4); ctx.fillRect(3,-5-st,2,4); }
+  if(a.carrying>0){ ctx.fillRect(-5-broad,-8,2,4); ctx.fillRect(3+broad,-8,2,4); }
+  else { ctx.fillRect(-5-broad,-5+st,2,4); ctx.fillRect(3+broad,-5-st,2,4); }
   // head
   ctx.fillStyle=a.skin; ctx.beginPath(); ctx.arc(0,-9,4,0,7); ctx.fill();
   // hats from traits, else hair in one of two silhouettes
@@ -1964,6 +2091,7 @@ function drawAgent(a){
     ctx.fillRect(-4,-13,8,3);
     if(a.id%2){ ctx.fillRect(-4,-12,2,3); }                                               // side part
     else { ctx.fillRect(2,-12,2,3); ctx.fillRect(-1,-14,3,2); }                           // tuft
+    if((a.groom??0.5)<0.3){ ctx.fillRect(-5,-12,1,2); ctx.fillRect(4,-13,1,2); }          // unkempt strands (§11)
   }
   // elder cane
   if(elder && a.carrying===0){
@@ -2066,6 +2194,7 @@ function renderInspector(){
       <div class="bars" id="skillbars"></div>
       <p class="kv">home: <b>${h ? (h.stage==="done"?"a finished cottage "+describeSpot(h.x,h.y):"a cottage under construction ("+Math.round(h.progress*100)+"%)") : "none yet — sleeping under the stars"}</b></p>
       <p class="kv">trade: <b>${a.career?esc(a.career.job):"none yet"}</b> · standing: <b>${wealthWord(a)}</b>${(a.knows&&a.knows.length)?` · knows <b>${a.knows.length}</b> recipe${a.knows.length>1?"s":""}`:""}</p>
+      <p class="kv">bearing: <b>${buildWord(a)}</b> · ${groomWord(a)}${(()=>{const bz=bizOf(a); if(bz) return ` · runs <b>${esc(bz.name)}</b>`; const w=businesses.find(x=>x.id===a.worksFor); return w?` · works at <b>${esc(w.name)}</b>`:"";})()}</p>
       <div class="secl">Bonds</div>
       <div class="rels">${relRows}</div>
       <div id="askbox">
@@ -2287,13 +2416,15 @@ function openFamilyTree(){
 
 /* ============================== persistence (§36: versioned saves) ============================== */
 const SAVE_KEY="emberhollow-save";
-const SAVE_V=1;
+const SAVE_V=2;
 const AGENT_FIELDS=["id","name","hue","skin","hair","x","y","home","carrying","partner","parents",
   "birthDay","lifespan","memories","thought","likes","traits","needs","brain","chatTurns",
-  "skills","wealth","knows","career","careerAt"];
+  "skills","wealth","knows","career","careerAt","body","phys","groom","wardrobe","bodyAt","worksFor"];
 function serializeGame(){
   return {
-    v:SAVE_V, savedAt:Date.now(), simTime, nextId, nextHouse,
+    v:SAVE_V, savedAt:Date.now(), simTime, nextId, nextHouse, nextBiz,
+    econ:{...econ},
+    businesses: businesses.map(b=>({...b})),
     rng:{sim:rngSim.s, weather:rngWeather.s},
     festState, atmo:{state:atmo.state,until:atmo.until,live:atmo.live,target:atmo.target,wind:atmo.wind},
     usedNames:[...usedNames],
@@ -2310,8 +2441,20 @@ function serializeGame(){
 }
 function migrateSave(d){
   if(!d || typeof d.v!=="number") throw new Error("unrecognized save");
-  // future schema versions migrate here, oldest→newest; never silently drop a civilization
-  if(d.v===1) return d;
+  // versions migrate oldest→newest; never silently drop a civilization
+  if(d.v===1){
+    // v2 adds bodies, grooming, wardrobes, the price economy, and businesses
+    for(const s of d.agents){
+      s.body ??= {str:0.3+Math.random()*0.3, fit:0.4+Math.random()*0.3, mass:0.4+Math.random()*0.2};
+      s.phys ??= 0; s.groom ??= 0.5;
+      s.wardrobe ??= {festival:false};
+      s.bodyAt ??= 0; s.worksFor ??= null;
+    }
+    d.businesses ??= [];
+    d.econ ??= {foodPrice:1, sold:0, hungry:0, priceAt:0};
+    d.v=2;
+  }
+  if(d.v===SAVE_V) return d;
   throw new Error("save version "+d.v+" is newer than this build");
 }
 function rebuildSolid(){
@@ -2336,6 +2479,9 @@ function loadGame(){
   catch(e){ toast("Couldn't read the saved town — it was left untouched."); return false; }
   try{
     simTime=d.simTime; nextId=d.nextId; nextHouse=d.nextHouse;
+    nextBiz=d.nextBiz||((d.businesses||[]).reduce((m,b)=>Math.max(m,b.id+1),1));
+    Object.assign(econ, d.econ||{foodPrice:1,sold:0,hungry:0,priceAt:0});
+    businesses.length=0; for(const b of d.businesses||[]) businesses.push(b);
     rngSim.s=d.rng.sim|0; rngWeather.s=d.rng.weather|0; _rngCur=rngSim;
     festState=d.festState||{day:0,name:null};
     Object.assign(atmo,d.atmo);
@@ -2439,7 +2585,7 @@ function personaPrompt(a){
 ${A?`You are ${A.name} of this town — ${A.essence}.`:""} ${B?`Your story: ${B.backstory}`:""}
 How you speak — obey these strictly: ${B?B.voice.join("; "):"warm, a little rustic"}.
 You are a ${stageOf(a)}, ${ageOf(a)} days old; ${topTraits(a).join(" and ")}; you love ${a.likes.join(", ")}.${B?` You hold dear: ${B.values.join(" and ")}. A private fear (only mention if it truly fits): ${B.fear}. A habit of yours: ${B.quirk}.`:""}
-${B&&B.goal?`Your current hope: ${B.goal.text}.`:""} You are ${wealthWord(a)}${a.career?`, working as a ${a.career.job}`:""}.${skl?` Your craft: ${skl}.`:""}${dishes?` Dishes you know the way of: ${dishes}.`:""}
+${B&&B.goal?`Your current hope: ${B.goal.text}.`:""} You are ${wealthWord(a)}${a.career?`, working as a ${a.career.job}`:""}${(()=>{const bz=bizOf(a); if(bz) return `, and you run ${bz.name}`; const w=businesses.find(x=>x.id===a.worksFor); return w?`, employed at ${w.name}`:"";})()}. In body you are ${buildWord(a)}, ${groomWord(a)}.${skl?` Your craft: ${skl}.`:""}${dishes?` Dishes you know the way of: ${dishes}.`:""}
 ${B?`You have a secret: ${B.secret} — you NEVER volunteer it; deflect gently unless this person has clearly earned deep trust across the conversation.`:""}
 Home: ${h ? (h.stage==="done"?"your finished cottage "+describeSpot(h.x,h.y):"a half-built cottage you're still raising") : "none yet; you sleep under the stars"}.
 ${a.partner?`Your partner is ${byId(a.partner)?.name||"gone now"}. `:""}${friends.length?`Friends: ${friends.join(", ")}. `:""}${rival?`You and ${rival.o.name} rub each other the wrong way. `:""}${drawn?`Lately you find your eyes following ${drawn.name}, though you'd not say it plainly. `:""}

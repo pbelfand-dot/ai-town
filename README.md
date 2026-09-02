@@ -8,6 +8,29 @@ specialist agents (design-director + design-critic, sim-ai-engineer,
 character-brain-keeper, town-code-reviewer) defined in `.claude/agents/`.
 See `COMMAND_CENTER.md` for the org chart and working agreement.
 
+## Round 4 (Bodies, Wardrobes & the Coin — phases 7 & 11)
+
+- **Bodies from lifestyle (§9)**: labor accumulates real exertion; a daily
+  drift moves strength and fitness toward the life actually lived — never a
+  random flip. Strong builders visibly broaden; elders soften. Tested:
+  laborer vs sedentary twins diverge (0.77 vs 0.25 strength).
+- **Grooming / appearanceInvestment (§11)**: presentation fades without care;
+  villagers spend real morning time making themselves presentable. Visible
+  (unkempt strands), felt (a `presentation` attraction weight — only for
+  those who care), and honest (it costs time).
+- **Clothing (§8)**: composable draw-time layers — trade workwear (baker's
+  flour-cream apron, angler's river-slate smock, builder's tool belt) and
+  festival sashes **bought from a tailor**, the first link of the
+  fiber→tailor→clothing→fashion economy.
+- **Prices (§20)**: the meal price breathes with supply and demand; shortages
+  print "Bread is selling for far too much" and pull career choices toward
+  food trades.
+- **Businesses (§21)**: skilled, solvent, ambitious villagers found named
+  businesses ("Oren's Ovens"), which collect takings, hire taught
+  apprentices, shutter when custom dries up, and pass to children on death.
+- Save schema **v2** with a real v1→v2 migration (tested: population
+  preserved, defaults filled). Test suite now **10/10**.
+
 ## Round 3 (Civilization Foundations — Master Directive phases 0–5)
 
 - **Stability (§35–37)**: seeded RNG split into world / sim / weather streams

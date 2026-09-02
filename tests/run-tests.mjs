@@ -113,7 +113,44 @@ const snap = p => p.evaluate(`(${function () {
     indoor.found ? (indoor.simulated && indoor.home) : 'skip',
     indoor.found ? indoor.name + ' indoors, home resolvable' : 'nobody went indoors in the window tested');
 
-  // ── 6. No page errors across the whole run ──
+  // ── 6. Physical development diverges with lifestyle (§9/§37) ──
+  const body = await a.evaluate(`(${function () {
+    const mk = () => ({ body: { str: 0.4, fit: 0.5, mass: 0.5 }, birthDay: -20, parents: [] });
+    const A = mk(), B = mk();
+    for (let i = 0; i < 25; i++) { driftBody(A, 0.9); driftBody(B, 0.08); }
+    return { a: A.body.str, b: B.body.str };
+  }})()`);
+  report('physical development diverges with lifestyle', body.a - body.b > 0.2,
+    `laborer str ${body.a.toFixed(2)} vs sedentary ${body.b.toFixed(2)}`);
+
+  // ── 7. Attraction preferences are personal & asymmetric (§12/§37) ──
+  const attr = await a.evaluate(`(${function () {
+    const [x, c] = window.__eh.agents;
+    const w = x.brain.attract, orig = w.presentation, og = c.groom;
+    c.groom = 1;
+    w.presentation = 1.6; const hi = attractionScore(x, c);
+    w.presentation = -0.4; const lo = attractionScore(x, c);
+    w.presentation = orig; c.groom = og;
+    return { hi, lo };
+  }})()`);
+  report('attraction: same candidate, different preference, different effect', attr.hi > attr.lo,
+    `presentation-lover ${attr.hi.toFixed(2)} vs indifferent ${attr.lo.toFixed(2)}`);
+
+  // ── 8. Save migration v1→v2 fills defaults, drops nothing (§36) ──
+  const mig = await a.evaluate(`(${function () {
+    const d = window.__eh.serialize();
+    d.v = 1; delete d.businesses; delete d.econ; delete d.nextBiz;
+    for (const s of d.agents) { delete s.body; delete s.phys; delete s.groom; delete s.wardrobe; delete s.bodyAt; delete s.worksFor; }
+    localStorage.setItem('emberhollow-save', JSON.stringify(d));
+    const pop = d.agents.length;
+    const ok = window.__eh.load();
+    const filled = window.__eh.agents.every(a => a.body && typeof a.groom === 'number' && a.wardrobe);
+    return { ok, filled, kept: window.__eh.agents.length === pop, econ: econ.foodPrice >= 1 };
+  }})()`);
+  report('versioned migration v1→v2', mig.ok && mig.filled && mig.kept && mig.econ,
+    mig.kept ? 'population preserved, defaults filled' : 'POPULATION LOST');
+
+  // ── 9. No page errors across the whole run ──
   report('zero runtime errors', a._errors.length === 0, a._errors.slice(0, 3).join(' | ') || 'clean console');
   await a.close();
 }

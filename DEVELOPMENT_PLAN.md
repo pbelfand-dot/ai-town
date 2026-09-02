@@ -182,11 +182,11 @@ variety. LOD last, after systems stabilize.
 | 4 | Skills/interests/jobs/mentorship | ✅ foundational cut shipped (8 domains, careerFit, teaching) |
 | 5 | Homes + observable interiors | ✅ shipped (occupants drawn at furniture, live summaries) |
 | 6 | Visual system + art bible | ✅ shipped + ART_BIBLE.md |
-| 7 | Clothing/grooming/body | 📋 next — layered sprites design in ART_BIBLE |
+| 7 | Clothing/grooming/body | ✅ foundational cut shipped (lifestyle-driven bodies, appearanceInvestment, workwear/festival layers, tailor chain) |
 | 8 | Relationships/attraction/dating | ✅ attraction profiles shipped; dating depth next |
 | 9 | Inheritance/teaching/lineage | ✅ lineage + teaching + brain/skill inheritance shipped |
 | 10 | Knowledge/recipes/discovery | ✅ foundational cut shipped (person-to-person only) |
-| 11 | Economy/businesses | 📋 wealth + market trades shipped; prices/businesses next |
+| 11 | Economy/businesses | ✅ supply/demand food price, business founding/failure/inheritance, apprentice employment; multi-good prices & shops next |
 | 12 | Construction/expansion | 📋 |
 | 13 | Institutions | 📋 |
 | 14 | Government/laws | 📋 (emerges from pressures, never population thresholds) |

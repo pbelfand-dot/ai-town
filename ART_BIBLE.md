@@ -55,6 +55,16 @@ Type: Fraunces (display), Atkinson Hyperlegible (body), IBM Plex Mono (data,
 (meadow=needs, rose=company, brass=joy/skills), `.secl` rules, `.ent`
 chronicle rows. Semantic state colors stay separate from the brass accent.
 
+## Clothing layers (§8)
+Looks are composed at draw time in `drawAgent`, never baked into sprites.
+Layer order: legs → body (+`broad` width for str>0.7) → hem shade →
+clothing layer (workwear apron/smock from `WORK_LOOK`, or festival sash at
+complementary hue `(hue+180)%360`) → arms → head → hair/hat (+unkempt
+strands when groom<0.3). Workwear colors are muted trade-mnemonics
+(flour-cream, field-green, river-slate, timber-brown, dye-plum, coin-ochre);
+identity color stays the owner's `hue`. New layers must keep the silhouette
+readable at zoom 1 and never cover the carried-timber sprite or hats.
+
 ## Adding assets
 1. Silhouette first — must read at zoom 1 against every seasonal ramp.
 2. Reuse the ramps/tokens; identity color only via owner `hue`.
