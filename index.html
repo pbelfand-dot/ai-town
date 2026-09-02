@@ -525,7 +525,7 @@ function makeAgent(opts={}){
   a.knows = [];
   a.career = null;          // chosen properly in slowPulse via considerCareer (§14)
   a.body = {str:0.2+a.traits.industry*0.25+rnd()*0.15, fit:0.35+rnd()*0.25, mass:0.4+rnd()*0.25};
-  a.phys = 0; a.groom = 0.35+rnd()*0.4;
+  a.phys = 0; a.bodyAt = day(); a.groom = 0.35+rnd()*0.4;
   a.wardrobe = {festival: isAdult(a)&&rnd()<0.25};
   a.worksFor = null;
   refreshGoal(a);
@@ -1378,12 +1378,18 @@ function updateAgent(a, dt){
           // coin moves at the going price (§20); a business collects its keeper's takings
           const pay=Math.min(a.wealth||0, econ.foodPrice);
           a.wealth=(a.wealth||0)-pay; s.wealth=(s.wealth||0)+pay;
-          econ.sold++;
+          if(pay) econ.sold++;                           // a free meal is charity, not supply signal
           const biz=businesses.find(x=>x.id===s.worksFor) || bizOf(s);
-          if(biz && pay){ biz.earn+=pay; biz.earnAt=day(); const ow=byId(biz.owner); if(ow&&ow!==s) ow.wealth=(ow.wealth||0)+1; }
+          if(biz && pay){
+            biz.earn+=pay; biz.earnAt=day();
+            const ow=byId(biz.owner);
+            if(ow&&ow!==s){ const cut=Math.min(1,s.wealth||0); s.wealth-=cut; ow.wealth=(ow.wealth||0)+cut; }  // owner's cut, not minted coin
+          }
           // the tailor's stall also sells festival wear — clothing becomes an economy (§8)
           if(s.career&&s.career.job==="tailor" && !(a.wardrobe&&a.wardrobe.festival) && (a.wealth||0)>=3){
             a.wealth-=3; s.wealth+=3;
+            const tb=bizOf(s)||businesses.find(x=>x.id===s.worksFor);
+            if(tb){ tb.earn+=3; tb.earnAt=day(); }
             a.wardrobe={...(a.wardrobe||{}), festival:true};
             remember(a,`I bought my first festival sash from ${s.name}.`);
             if(rnd()<.5) chron(`${a.name} bought a festival sash from ${s.name} — you'll know them at the next fair.`);
@@ -1608,9 +1614,9 @@ function slowPulse(){
       if(inb(g[0],g[1])&&ground[K(g[0],g[1])]===G_GRASS){ ground[K(g[0],g[1])]=G_GRAVE; graves.push({x:g[0],y:g[1],name:a.name}); groundDirty=true; }
       if(a.partner){ const p=byId(a.partner); if(p){ p.partner=null; remember(p,`${a.name} passed on. The cottage is quieter now.`); } }
       if(h) removeHouseClaim(h,a);   // clean the owner list; tear down an orphaned half-build
-      const biz=bizOf(a);
-      if(biz){
-        const heir=agents.find(o=>o!==a&&o.alive&&o.parents&&o.parents.includes(a.id)&&isAdult(o));
+      // an heir can already own a business, so a person may die holding several — settle them ALL
+      const heir=agents.find(o=>o!==a&&o.alive&&o.parents&&o.parents.includes(a.id)&&isAdult(o));
+      for(const biz of businesses.filter(x=>x.owner===a.id)){
         if(heir){ biz.owner=heir.id; chron(`${biz.name} passes to ${heir.name} — the sign stays, the hands change.`); remember(heir,`I inherited ${biz.name}.`); }
         else closeBusiness(biz,"its keeper passed on");
       }
