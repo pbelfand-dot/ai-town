@@ -654,7 +654,8 @@ function startHouse(a){
               woodNeed:10, woodHave:0, style:houseStyleFor(a), interior:null,
               doorX:bx+1, doorY:by+2,
               tier:1, upg:null, history:[`Ground broken by ${a.name}, day ${day()}.`],
-              designQ:quality, designer: designer!==a ? designer.name : null };
+              designQ:quality, designer: designer!==a ? designer.name : null,
+              designerId: designer!==a ? designer.id : null };
   if(designer!==a) houseNote(h, `${designer.name} drew the plans.`);
   for(let y=by;y<by+3;y++) for(let x=bx;x<bx+3;x++) solid[K(x,y)]=1;
   solid[K(h.doorX,h.doorY)]=0;
@@ -686,7 +687,7 @@ function finishHouse(h){
   h.owners.forEach(id=>{ const o=byId(id); if(o) remember(o,"my cottage was finished; it feels like me."); });
   // the designer is paid for the plans — craft has a price (§20)
   if(h.designer){
-    const d=agents.find(o=>o.alive && o.name===h.designer);
+    const d=h.designerId!=null ? byId(h.designerId) : null;   // id, not name — names can collide
     const o0=byId(h.owners[0]);
     if(d && o0 && (o0.wealth||0)>=2){
       o0.wealth-=2; d.wealth=(d.wealth||0)+2;
@@ -2882,7 +2883,7 @@ function migrateSave(d){
     // (64×44 → 96×64): the old town is kept intact, coordinates unchanged,
     // and the newly revealed land gets river, bridge and groves.
     for(const s of d.agents) s.pregnant ??= null;
-    for(const h of d.houses){ h.designQ ??= 0.3+((h.tier||1)-1)*0.15; h.designer ??= null; }
+    for(const h of d.houses){ h.designQ ??= 0.3+((h.tier||1)-1)*0.16; h.designer ??= null; h.designerId ??= null; }
     const ow=(d.world&&d.world.w)||64, oh=(d.world&&d.world.h)||44;
     if(ow!==W || oh!==H){
       const g=new Array(W*H).fill(G_GRASS), w2=new Array(W*H).fill(0);
