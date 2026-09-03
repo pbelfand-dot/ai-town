@@ -27,6 +27,13 @@ See `COMMAND_CENTER.md` for the org chart and working agreement.
   after a sour talk; zzz over rough sleepers; chat bubbles mid-gossip.
 - Worn desire-paths now render as real connected lanes (dirt → sand road
   by era) that only appear once a lane truly forms.
+- **Interiors rebuilt in NA art, both views**: the open-roof zoom gets
+  real plank/tile floors and blanket-colored beds (the blanket follows
+  the owner's hue); the click-inspector rooms get material floors, a
+  timber wall band, the household rug, NA beds/tables/kegs — and the
+  occupants are the villagers' own sprites, asleep in their actual beds.
+  The tavern shows its bar and kegs; the market its stalls and crates;
+  the school its slate and desks.
 - Suite **22/22** (sprite assignment, v6→v7 migration, art decoding).
 
 ## Round 8 (The Ages of Emberhollow — town center, eras & open roofs)
