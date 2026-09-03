@@ -552,7 +552,16 @@ function makeBrain(a){
   const vo=[...A.voice], voice=[];
   while(voice.length<2 && vo.length) voice.push(vo.splice(ri(vo.length),1)[0]);
   return { arch, backstory, voice, values, fear:pick(A.fears), quirk:pick(A.quirks), secret:pick(A.secrets), sig:pick(A.sigs),
-           attract:rollAttract(), goal:null };
+           attract:rollAttract(), goal:null,
+           // [brain v3] the inner life: latent stances (crystallized at adulthood),
+           // a slow mood, and room for the life-plan stem
+           plan:null,
+           stance:{ set:false, wantsPartner:null, wantsChildren:null,
+                    rooted: clamp(rnd()*0.6 + (arch==="wanderer"?0:0.3), 0, 1),
+                    ambition: clamp(rnd()*0.7 + a.traits.industry*0.3, 0, 1),
+                    chrono: rnd(), pPartnerPrior:0.12, pChildPrior:0.18 },
+           mood:{ k:"content", i:0.3, at:0, decAt:0 },
+           seen:0, taught:0, kidsTalk:false };
 }
 /* [brain v2] attraction preference profiles (§12): personal, probabilistic,
    ASYMMETRIC. Weights vary per person — some care greatly, some not at all,
@@ -581,36 +590,110 @@ function attractionScore(a,b){
   return clamp(0.4+s*0.25, 0, 1);
 }
 /* [brain v2] life goals — one active aspiration, refreshed at milestones */
-function refreshGoal(a){
-  const B=a.brain; if(!B) return;
-  const opts=[];
+/* [brain v3] THE STEM — an ordered life-plan of aspirations, generated from
+   who a person is, filtered by what they actually want. The current step
+   biases decisions (never scripts them) and shows in thoughts & interviews.
+   The old single `goal` stays as an alias to the current step. */
+const PLAN_TEXT={
+  home:      ()=>"raise a cottage of my own",
+  riverHome: ()=>"live within sight of the river",
+  master:    d=>"truly master "+d,
+  shop:      ()=>"open a shop of my own",
+  love:      ()=>"find someone to share the hearth with",
+  family:    ()=>"raise a child under this roof",
+  discover:  ()=>"discover a dish no one has tasted",
+  teach:     ()=>"pass my craft into younger hands",
+  farBank:   ()=>"walk every corner of the valley",
+  renown:    ()=>"be someone the town answers to",
+  peace:     n=>"make peace with "+n,
+  live:      ()=>"grow old here, gently",
+};
+const PLAN_POOL={ tender:["love","family","home","teach"], maker:["master","home","shop","teach"],
+  wanderer:["farBank","riverHome","discover","love"], keeper:["teach","renown","love","home"],
+  dreamer:["master","discover","riverHome","love"], steady:["home","master","family","teach"],
+  listener:["home","farBank","teach","love"], ember:["love","renown","family","shop"] };
+function planStepDone(a, st){
   const h=homeOf(a);
-  if(isAdult(a)&&(!h||h.stage!=="done")) opts.push({kind:"home", text:"raise a cottage of my own"+(a.likes.includes("fishing")?" by the river":"")});
-  const d=skillDomainOf(a.likes[0]);
-  if(skillOf(a,d)<0.8) opts.push({kind:"master", d, text:"truly master "+d});
-  if(!a.partner&&isAdult(a)&&!isElder(a)) opts.push({kind:"love", text:"find someone to share the hearth with"});
-  if(!(a.knows||[]).length&&(skillOf(a,"cooking")>0.1||a.likes.includes("baking"))) opts.push({kind:"discover", text:"discover a dish no one has tasted"});
-  const rivalE=[...a.rel.entries()].find(([id,r])=>r.aff<-1&&byId(id));
-  if(rivalE) opts.push({kind:"peace", who:rivalE[0], text:"make peace with "+byId(rivalE[0]).name});
-  if(isElder(a)) opts.push({kind:"legacy", text:"pass on what I know before the long rest"});
-  B.goal = opts.length?pick(opts):{kind:"live", text:"live gently and be remembered kindly"};
-}
-function checkGoal(a){
-  const g=a.brain&&a.brain.goal; if(!g){ refreshGoal(a); return; }
-  let done=false;
-  const h=homeOf(a);
-  if(g.kind==="home") done=!!(h&&h.stage==="done");
-  else if(g.kind==="master") done=skillOf(a,g.d)>=0.8;
-  else if(g.kind==="love") done=!!a.partner;
-  else if(g.kind==="discover") done=(a.knows||[]).length>0;
-  else if(g.kind==="peace") done=g.who!=null && (a.rel.get(g.who)?.aff||0)>1;
-  if(done){
-    a.needs.joy=1;
-    remember(a,`I did it — ${g.text}.`);
-    if(rnd()<0.6) chron(`${a.name} quietly achieved a long-held hope: ${g.text}.`);
-    refreshGoal(a);
+  switch(st.kind){
+    case "home": return !!(h&&h.stage==="done");
+    case "riverHome": return !!(h&&h.stage==="done"&&Math.abs(h.x-RIVER_X(h.y))<=7);
+    case "master": return skillOf(a,st.d)>=0.8;
+    case "shop": return !!bizOf(a);
+    case "love": return !!a.partner;
+    case "family": return agents.some(o=>(o.parents||[]).includes(a.id)) || lineage.some(l=>(l.parents||[]).includes(a.id));
+    case "discover": return (a.knows||[]).length>0;
+    case "teach": return (a.brain.taught||0)>=3;
+    case "farBank": return a.brain.seen===15;
+    case "renown": return civic.leaderId===a.id || tech.writerName===a.name;
+    case "peace": return st.who!=null && (a.rel.get(st.who)?.aff||0)>1;
+    default: return false;   // "live" is open-ended
   }
 }
+function makePlan(a){
+  const B=a.brain; if(!B) return;
+  const s=B.stance||{};
+  let pool=(PLAN_POOL[B.arch]||PLAN_POOL.steady).slice();
+  if(s.wantsPartner===false) pool=pool.filter(k=>k!=="love");
+  if(s.wantsChildren===false || s.wantsPartner===false) pool=pool.filter(k=>k!=="family");
+  if((s.ambition??0.5)<0.45) pool=pool.filter(k=>k!=="shop"&&k!=="renown");
+  if((s.rooted??0.5)>0.7) pool=pool.filter(k=>k!=="farBank");
+  if((s.rooted??0.5)<0.25 && !pool.includes("farBank")) pool.unshift("farBank");
+  const steps=[];
+  for(const kind of pool){
+    const st={kind};
+    if(kind==="master"){ st.d=skillDomainOf(a.likes[0]); }
+    st.text=PLAN_TEXT[kind](st.d);
+    if(planStepDone(a,st)) continue;                    // a partnered migrant doesn't aspire to love
+    steps.push(st);
+    if(steps.length>=4) break;
+  }
+  if(steps.length>1 && rnd()<0.35){                     // siblings of one archetype still differ
+    const i=ri(steps.length-1); const t=steps[i]; steps[i]=steps[i+1]; steps[i+1]=t;
+  }
+  steps.push({kind:"live", text:PLAN_TEXT.live()});
+  B.plan={steps, i:0};
+  B.goal=steps[0];
+}
+function advancePlan(a){
+  const B=a.brain; if(!B) return;
+  if(!B.plan){ if(B.stance&&B.stance.set) makePlan(a); return; }
+  const P=B.plan, st=P.steps[P.i];
+  if(!st){ P.i=P.steps.length-1; B.goal=P.steps[P.i]; return; }
+  // impossible steps are grieved and released, never silently rerolled
+  if((st.kind==="love"&&isElder(a)) || (st.kind==="peace"&&st.who!=null&&!byId(st.who))
+     || (st.kind==="family"&&isElder(a))){
+    st.kind="live"; st.text="some hopes stay hopes — and the days are still good";
+    setMood(a, st.kind==="peace"?"grieving":"restless", 0.6);
+    remember(a,"I let an old hope go, gently.");
+  }
+  if(st.kind!=="live" && planStepDone(a,st)){
+    st.done=true;
+    a.needs.joy=1;
+    setMood(a,"proud",0.8);
+    remember(a,`I did it — ${st.text}.`);
+    if(rnd()<0.6) chron(`${a.name} quietly achieved a long-held hope: ${st.text}.`);
+    P.i=Math.min(P.i+1, P.steps.length-1);
+  }
+  // a festering rival can interrupt any plan (keeps v2's peace behavior)
+  if(!P.steps.some(x=>x.kind==="peace") && rnd()<0.15){
+    const rivalE=[...a.rel.entries()].find(([id,r])=>r.aff<-1&&byId(id));
+    if(rivalE){ P.steps.splice(P.i,0,{kind:"peace",who:rivalE[0],text:PLAN_TEXT.peace(byId(rivalE[0]).name)}); }
+  }
+  // elders whose chain has run out still pass the craft on
+  if(isElder(a) && P.steps[P.i] && P.steps[P.i].kind==="live" && !P.steps.some(x=>x.kind==="teach"&&!x.done)
+     && (B.taught||0)<3 && rnd()<0.3){
+    P.steps.splice(P.i,0,{kind:"teach",text:"pass on what I know before the long rest"});
+  }
+  B.goal=P.steps[P.i];
+}
+const planStepKind = a => a.brain?.plan?.steps?.[a.brain.plan.i]?.kind || null;
+// v2 names kept as thin wrappers — same call sites, new machinery
+function refreshGoal(a){
+  const B=a.brain; if(!B) return;
+  if(B.stance&&B.stance.set){ makePlan(a); return; }
+  B.goal={kind:"live", text: isAdult(a) ? "find my footing in this town" : "grow up strong and see everything"};
+}
+function checkGoal(a){ advancePlan(a); }
 /* inheritance: one value from each parent; sometimes a parent's fear/quirk,
    sometimes mutated to a related one (re-rolled inside that parent's archetype pool).
    Null-safe: skips any parent (or parent brain) that is missing. */
@@ -633,6 +716,17 @@ function inheritBrain(kid, pa, pb){
     const pav=pa&&pa.brain&&pa.brain.attract?(pa.brain.attract[k]??B.attract[k]):B.attract[k];
     const pbv=pb&&pb.brain&&pb.brain.attract?(pb.brain.attract[k]??B.attract[k]):B.attract[k];
     B.attract[k]=((pav+pbv)/2)*0.5 + B.attract[k]*0.5;
+  }
+  // [brain v3] stances lean toward the parents too — numerics blend like attract;
+  // the booleans travel as PRIORS (a child of someone who never wanted children
+  // is ~2.5x likelier to roll the same, but mutation IS the roll, at adulthood)
+  if(B.stance){
+    for(const k of ["rooted","ambition","chrono"]){
+      const pav=pa?.brain?.stance?.[k] ?? B.stance[k], pbv=pb?.brain?.stance?.[k] ?? B.stance[k];
+      B.stance[k]=clamp(((pav+pbv)/2)*0.5 + B.stance[k]*0.5, 0, 1);
+    }
+    if(pa?.brain?.stance?.wantsPartner===false || pb?.brain?.stance?.wantsPartner===false) B.stance.pPartnerPrior=0.30;
+    if(pa?.brain?.stance?.wantsChildren===false || pb?.brain?.stance?.wantsChildren===false) B.stance.pChildPrior=0.45;
   }
 }
 
