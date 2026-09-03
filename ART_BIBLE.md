@@ -1,5 +1,11 @@
 # Emberhollow Pixel Art Bible (§32)
 
+**Since round 9 the world renders from the Ninja Adventure asset pack**
+(Pixel-boy & AAA, CC0), embedded as data URIs and cropped via the `NAC`
+table; the hand-drawn art below remains as the pre-decode fallback and the
+open-roof interiors. New art must match NA's outlined 16px idiom; UI,
+light pass, particles, and interiors still follow the rules below.
+
 The binding conventions of the cozy-pixel-storybook look, documented from the
 shipped code. Change these deliberately or not at all; design-critic enforces
 them at 100% game scale (§33).

@@ -8,6 +8,27 @@ specialist agents (design-director + design-critic, sim-ai-engineer,
 character-brain-keeper, town-code-reviewer) defined in `.claude/agents/`.
 See `COMMAND_CENTER.md` for the org chart and working agreement.
 
+## Round 9 (The Ninja Adventure look — real pixel art, faces & emotes)
+
+- **The whole world re-drawn** in the [Ninja Adventure asset pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack)
+  by Pixel-boy & AAA (CC0 — free for any use; credit in the game footer):
+  seasonal trees (blossom, summer green, autumn gold, snow), a river with
+  sandy banks, plank bridges, camp tents for the founders, thatch timber
+  houses, pale stone houses, city buildings — the eras all read in the
+  new art, and every sprite ships embedded in the single game file.
+- **Real villager sprites**: every villager wears a Ninja Adventure body
+  chosen at birth to fit their traits (artists trend princely, hunters
+  rugged, scholars monkish), with true 4-direction walk animations;
+  children share the small frame and elders move into the old folks'
+  sheets. Bodies persist in saves (schema **v7**).
+- **Faces**: the inspector portrait is now each villager's actual faceset.
+- **Emotes** over villagers' heads, Smallville-style: hearts for new
+  couples, pregnancies and births; a broken heart in grief; storm clouds
+  after a sour talk; zzz over rough sleepers; chat bubbles mid-gossip.
+- Worn desire-paths now render as real connected lanes (dirt → sand road
+  by era) that only appear once a lane truly forms.
+- Suite **22/22** (sprite assignment, v6→v7 migration, art decoding).
+
 ## Round 8 (The Ages of Emberhollow — town center, eras & open roofs)
 
 - **The town grows up**: river camp → timber village → stone town → river

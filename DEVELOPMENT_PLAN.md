@@ -203,7 +203,10 @@ pregnancy — conception, a carried term with visible effects, then birth.
 Round 8 added the AGES (save v6): camp→timber→stone→city earned by real
 conditions and physically built (fountain, paving) by villager labor; house
 materials (h.mat), era-dressed roads/bridges/plaza with an open-air
-marketplace, and the open-roof zoom view (interiors drawn on the map). Every phase now exists as a real,
+marketplace, and the open-roof zoom view (interiors drawn on the map).
+Round 9 (save v7) re-drew the world in the Ninja Adventure pack (CC0,
+embedded): seasonal NA trees/river/houses by era, per-villager sprite
+bodies with 4-direction walks, faceset portraits, and event emotes. Every phase now exists as a real,
 interacting system; deepening continues per the medium/long-term lists above
 (multi-good economy, clothing fashion cycles, protests & varied government
 forms, tech beyond writing, true LOD, richer LLM routing).

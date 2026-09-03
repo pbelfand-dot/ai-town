@@ -279,7 +279,7 @@ const snap = p => p.evaluate(`(${function () {
     const pregOK = m.agents.every(s => s.pregnant === null);
     return { v: m.v, sized, intact, river, grove, pregOK };
   }})()`);
-  report('v4 save widens into the 96×64 valley', wide.v === 6 && wide.sized && wide.intact && wide.river && wide.grove && wide.pregOK,
+  report('v4 save widens into the 96×64 valley', wide.v === 7 && wide.sized && wide.intact && wide.river && wide.grove && wide.pregOK,
     `v${wide.v}, old town intact:${wide.intact}, south river:${wide.river}, new groves:${wide.grove}`);
 
   // ── 16. The ages of the town: huts first; the fountain crossing is earned & built (§40) ──
@@ -339,8 +339,22 @@ const snap = p => p.evaluate(`(${function () {
     const m = eh.migrate(d);
     return { v: m.v, era: m.town && m.town.era, mats: m.houses.every(h => typeof h.mat === 'number'), pop: m.agents.length === eh.agents.length };
   }})()`);
-  report('v5 save migrates: existing towns wake as timber villages', v6.v === 6 && v6.era === 1 && v6.mats && v6.pop,
+  report('v5 save migrates: existing towns wake as timber villages', v6.v === 7 && v6.era === 1 && v6.mats && v6.pop,
     `v${v6.v}, era ${v6.era}, materials filled:${v6.mats}`);
+
+  // ── 18. Ninja Adventure bodies: assigned at birth, saved, migrated; art decodes ──
+  const art = await a.evaluate(`(${function () {
+    const eh = window.__eh;
+    const allHave = eh.agents.every(x => x.sprite && x.sprite.adult && x.sprite.elder);
+    const d = JSON.parse(JSON.stringify(eh.serialize()));
+    d.v = 6; for (const s of d.agents) delete s.sprite;
+    const m = eh.migrate(d);
+    const migHave = m.v === 7 && m.agents.every(s => s.sprite && s.sprite.adult);
+    return { allHave, migHave, ready: eh.artReady };
+  }})()`);
+  report('villagers wear stable sprite bodies; v6 saves gain them; art decoded',
+    art.allHave && art.migHave && art.ready,
+    `assigned:${art.allHave} migrated:${art.migHave} artReady:${art.ready}`);
 
   // ── 18. No page errors across the whole run ──
   report('zero runtime errors', a._errors.length === 0, a._errors.slice(0, 3).join(' | ') || 'clean console');

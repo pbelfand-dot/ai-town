@@ -18,6 +18,11 @@ north star; `DEVELOPMENT_PLAN.md` for current state and roadmap.
   (`town.era` 0–3: camp/timber/stone/city) — earned by real conditions and
   built by villager labor, never timed; houses carry `h.mat`, roads/bridges/
   plaza render by era, and zoom ≥ 2.2 peels roofs off (open-roof view).
+- **World art** renders from the embedded Ninja Adventure pack (CC0, credit
+  in footer): `NA_ART` data block (regenerate with scratchpad `pack-art.mjs`,
+  splice between the NA_ART markers), `NAC` crop table, `artReady` gate; the
+  hand-drawn code stays as pre-decode fallback + open-roof interiors.
+  Villagers carry persistent sprite bodies (`a.sprite`, chosen at birth).
 - **NPCs are data.** One brain object per villager (`a.brain`) is the single
   source of truth for both utility behavior and the live Claude interviews
   (`personaPrompt`). Never fork that.
