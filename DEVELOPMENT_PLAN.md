@@ -206,7 +206,12 @@ materials (h.mat), era-dressed roads/bridges/plaza with an open-air
 marketplace, and the open-roof zoom view (interiors drawn on the map).
 Round 9 (save v7) re-drew the world in the Ninja Adventure pack (CC0,
 embedded): seasonal NA trees/river/houses by era, per-villager sprite
-bodies with 4-direction walks, faceset portraits, and event emotes. Every phase now exists as a real,
+bodies with 4-direction walks, faceset portraits, and event emotes.
+Round 10 (save v8) built Brain v3: the life-plan stem (aspiration chains
+with sim predicates biasing chooseTask), life stances (wantsPartner /
+wantsChildren gates with real refusal & disagreement drama, roots,
+ambition, chronotype), event-driven moods, and the composed thought
+engine — deepening §2, §12, §29–30. Every phase now exists as a real,
 interacting system; deepening continues per the medium/long-term lists above
 (multi-good economy, clothing fashion cycles, protests & varied government
 forms, tech beyond writing, true LOD, richer LLM routing).

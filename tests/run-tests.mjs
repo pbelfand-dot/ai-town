@@ -279,7 +279,7 @@ const snap = p => p.evaluate(`(${function () {
     const pregOK = m.agents.every(s => s.pregnant === null);
     return { v: m.v, sized, intact, river, grove, pregOK };
   }})()`);
-  report('v4 save widens into the 96×64 valley', wide.v === 7 && wide.sized && wide.intact && wide.river && wide.grove && wide.pregOK,
+  report('v4 save widens into the 96×64 valley', wide.v === 8 && wide.sized && wide.intact && wide.river && wide.grove && wide.pregOK,
     `v${wide.v}, old town intact:${wide.intact}, south river:${wide.river}, new groves:${wide.grove}`);
 
   // ── 16. The ages of the town: huts first; the fountain crossing is earned & built (§40) ──
@@ -339,7 +339,7 @@ const snap = p => p.evaluate(`(${function () {
     const m = eh.migrate(d);
     return { v: m.v, era: m.town && m.town.era, mats: m.houses.every(h => typeof h.mat === 'number'), pop: m.agents.length === eh.agents.length };
   }})()`);
-  report('v5 save migrates: existing towns wake as timber villages', v6.v === 7 && v6.era === 1 && v6.mats && v6.pop,
+  report('v5 save migrates: existing towns wake as timber villages', v6.v === 8 && v6.era === 1 && v6.mats && v6.pop,
     `v${v6.v}, era ${v6.era}, materials filled:${v6.mats}`);
 
   // ── 18. Ninja Adventure bodies: assigned at birth, saved, migrated; art decodes ──
@@ -349,12 +349,75 @@ const snap = p => p.evaluate(`(${function () {
     const d = JSON.parse(JSON.stringify(eh.serialize()));
     d.v = 6; for (const s of d.agents) delete s.sprite;
     const m = eh.migrate(d);
-    const migHave = m.v === 7 && m.agents.every(s => s.sprite && s.sprite.adult);
+    const migHave = m.v === 8 && m.agents.every(s => s.sprite && s.sprite.adult);
     return { allHave, migHave, ready: eh.artReady };
   }})()`);
   report('villagers wear stable sprite bodies; v6 saves gain them; art decoded',
     art.allHave && art.migHave && art.ready,
     `assigned:${art.allHave} migrated:${art.migHave} artReady:${art.ready}`);
+
+  // ── 19. A heart kept its own way: wantsPartner:false truly gates romance (§brain v3) ──
+  const celib = await a.evaluate(`(${function () {
+    const eh = window.__eh;
+    const adults = eh.agents.filter(x => x.alive && !x.partner && (eh.day() - x.birthDay) >= 6);
+    if (adults.length < 3) return { skip: true };
+    const solo = adults[0];
+    solo.brain.stance = { ...(solo.brain.stance||{}), set: true, wantsPartner: false, wantsChildren: false };
+    if (solo.brain.plan) { solo.brain.plan = null; }   // replan without love steps
+    const startPairs = eh.agents.filter(x => x.partner).length;
+    for (let i = 0; i < 40; i++) {
+      solo.needs.social = 0.3;                          // keep them out chatting
+      eh.step(75);
+    }
+    const pairsNow = eh.agents.filter(x => x.partner).length;
+    return { skip: false, single: solo.partner === null, othersPaired: pairsNow > startPairs || startPairs > 0, name: solo.name };
+  }})()`);
+  report('a wantsPartner:false villager stays single while the town still pairs',
+    celib.skip ? 'skip' : (celib.single && celib.othersPaired),
+    celib.skip ? 'too few free adults' : `${celib.name} single:${celib.single}, town romance alive:${celib.othersPaired}`);
+
+  // ── 20. Wanting different futures: the children disagreement surfaces (§brain v3) ──
+  const kids = await a.evaluate(`(${function () {
+    const eh = window.__eh;
+    const pa = eh.agents.find(x => x.alive && x.partner && eh.houses.some(h => h.id === x.home && h.stage === 'done'));
+    if (!pa) return { skip: true };
+    const pb = eh.agents.find(x => x.id === pa.partner);
+    if (!pb || pb.home !== pa.home) return { skip: true };
+    pa.brain.stance = { ...(pa.brain.stance||{}), set: true, wantsChildren: true };
+    pb.brain.stance = { ...(pb.brain.stance||{}), set: true, wantsChildren: false };
+    pa.brain.kidsTalk = false; pb.brain.kidsTalk = false;
+    pa.pregnant = null; pb.pregnant = null;
+    for (let i = 0; i < 30 && !pa.brain.kidsTalk; i++) eh.step(75);
+    const line = eh.serialize().chron.some(e => /wants children; .+ does not/.test(e.txt));
+    return { skip: false, talked: pa.brain.kidsTalk && pb.brain.kidsTalk, line,
+             noBaby: !pa.pregnant && !pb.pregnant };
+  }})()`);
+  report('a couple disagreeing about children airs it, and no child comes',
+    kids.skip ? 'skip' : (kids.talked && kids.line && kids.noBaby),
+    kids.skip ? 'no settled couple in this run' : `talked:${kids.talked} chronicled:${kids.line} no pregnancy:${kids.noBaby}`);
+
+  // ── 21. No two psyches narrate alike: thought sets are disjoint (§brain v3) ──
+  const th = await a.evaluate(`(${function () {
+    const eh = window.__eh;
+    const [x, y] = eh.agents;
+    x.brain.mood = { k: 'grieving', i: 0.9, at: 0, decAt: 0 };
+    x.brain.stance = { ...(x.brain.stance||{}), set: true, rooted: 0.9, ambition: 0.1 };
+    x.brain.arch = 'steady';
+    x.brain.plan = { steps: [{ kind: 'teach', text: 'pass my craft into younger hands' }], i: 0 };
+    x.brain.goal = x.brain.plan.steps[0]; x.wealth = 10;
+    y.brain.mood = { k: 'inspired', i: 0.9, at: 0, decAt: 0 };
+    y.brain.stance = { ...(y.brain.stance||{}), set: true, rooted: 0.1, ambition: 0.9 };
+    y.brain.arch = 'wanderer';
+    y.brain.plan = { steps: [{ kind: 'farBank', text: 'walk every corner of the valley' }], i: 0 };
+    y.brain.goal = y.brain.plan.steps[0]; y.wealth = 10;
+    const A = new Set(), B = new Set();
+    for (let i = 0; i < 40; i++) { A.add(eh.composeThought(x)); B.add(eh.composeThought(y)); }
+    const overlap = [...A].filter(t => B.has(t));
+    return { overlap: overlap.length, va: A.size, vb: B.size };
+  }})()`);
+  report('two opposed psyches produce fully disjoint inner monologues',
+    th.overlap === 0 && th.va >= 5 && th.vb >= 5,
+    `overlap:${th.overlap}, variety ${th.va}/${th.vb}`);
 
   // ── 18. No page errors across the whole run ──
   report('zero runtime errors', a._errors.length === 0, a._errors.slice(0, 3).join(' | ') || 'clean console');

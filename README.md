@@ -8,6 +8,36 @@ specialist agents (design-director + design-critic, sim-ai-engineer,
 character-brain-keeper, town-code-reviewer) defined in `.claude/agents/`.
 See `COMMAND_CENTER.md` for the org chart and working agreement.
 
+## Round 10 (Brain v3 — the inner lives)
+
+- **The life-plan stem**: every villager now carries an ordered chain of
+  aspirations generated from who they are — master a craft → open a shop →
+  pass it on; or walk every corner of the valley → live within sight of
+  the river. Each step has a real completion condition in the simulation;
+  the current step *leans* on daily decisions (practice trips, courting,
+  scouting unseen quarters, choosing a riverside plot) without ever
+  scripting them. Completed hopes are chronicled; impossible ones are
+  grieved and released.
+- **Life stances** — humans differ: ~12% of villagers genuinely never
+  want a partner (they turn suitors down kindly, on the record) and ~18%
+  don't want children — when a couple disagrees, the cottage goes quiet
+  and the chronicle says so; hearts occasionally change. Wanderlust vs
+  deep roots sets how far they stroll; ambition vs contentment decides
+  who founds shops and rebuilds finer; early risers and night owls keep
+  different hours (the owls close the tavern). All inheritable leanings.
+- **Moods**: one slow feeling per person — grief when someone close dies
+  (children and friends grieve now, not just partners), pride at a
+  finished hope, loneliness, worry after hungry days, inspiration at
+  festivals and discoveries. Moods color chats, joy, emotes, and tone.
+- **The thought engine**: inner monologue composed from mood × stance ×
+  aspiration × archetype — two opposed psyches produce provably disjoint
+  thought streams (it's a test).
+- **Interviews v3**: villagers state their stances plainly ("I never
+  wanted children — it is not a wound"), carry their mood as tone, and
+  hold their life-chain as a private map.
+- Save schema **v8** (old villagers derive their inner lives
+  deterministically). Suite **25/25**.
+
 ## Round 9 (The Ninja Adventure look — real pixel art, faces & emotes)
 
 - **The whole world re-drawn** in the [Ninja Adventure asset pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack)

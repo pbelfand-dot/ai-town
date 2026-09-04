@@ -687,6 +687,53 @@ function advancePlan(a){
   B.goal=P.steps[P.i];
 }
 const planStepKind = a => a.brain?.plan?.steps?.[a.brain.plan.i]?.kind || null;
+/* [brain v3] moods: ONE slow feeling per person, set by real events, decayed
+   daily in slowPulse. Stronger or comparable feelings displace; weak ones
+   never churn the state. Read (never written) by the tick path. */
+const MOODS=["content","lonely","grieving","inspired","restless","proud","worried"];
+function setMood(a,k,i){
+  const m=a.brain&&a.brain.mood; if(!m) return;
+  if(k===m.k){ m.i=clamp(Math.max(m.i,i),0,1); }
+  else if(i>=m.i*0.7){ m.k=k; m.i=clamp(i,0,1); }
+  m.at=day();
+}
+const moodWord=a=>{ const m=a.brain?.mood; return (m&&m.i>0.35)?m.k:null; };
+/* [brain v3] the thought engine: inner monologue composed from mood ×
+   stance × current aspiration × archetype — no two psyches narrate alike */
+const MOOD_TH={ content:["the day is enough","nothing hurts and the bread was good"],
+  lonely:["everyone seems to walk in pairs","half-hoping someone calls my name"],
+  grieving:["the path still expects them","walking it off, slowly"],
+  inspired:["ideas arriving faster than feet","the whole valley looks freshly painted"],
+  restless:["these lanes are wearing thin","itchy-footed and out of excuses"],
+  proud:["still warm from what I finished","let them see me walk it off"],
+  worried:["counting coins in my head again","the pantry keeps me up nights"] };
+const STANCE_TH={ wander:["the far bank keeps calling","one day I'll just keep walking"],
+  rooted:["every stone here knows my step","why leave what's finally home?"],
+  driven:["there's more in me than this","rehearsing tomorrow while walking today"],
+  content:["ambition is a loud neighbor","enough is a feast, if you let it"] };
+const PLAN_TH=["turning over a quiet hope — {G}","one day: {G}","closer to it than yesterday — {G}","{G} — patience, patience"];
+const PLAIN_TH=["taking a slow walk","following the worn path","seeing what the day brings","humming to no one"];
+function composeThought(a){
+  const B=a.brain; if(!B) return pick(PLAIN_TH);
+  const m=B.mood, s=B.stance||{}, g=B.goal;
+  const r=rnd();
+  let t=null;
+  if(m && m.i>0.4 && r<0.30) t=pick(MOOD_TH[m.k]||PLAIN_TH);
+  else if(g && r<0.50){
+    t=(a.wealth||0)<2 ? "the coin pouch is nearly empty — and still: "+g.text
+                      : pick(PLAN_TH).replace("{G}",g.text);
+  } else if(s.set && r<0.70){
+    const pool = (s.rooted<0.3)?STANCE_TH.wander : (s.rooted>0.75)?STANCE_TH.rooted
+               : (s.ambition>0.75)?STANCE_TH.driven : (s.ambition<0.25)?STANCE_TH.content : null;
+    if(pool) t=pick(pool);
+  }
+  if(!t) t=ARCHES[B.arch] ? pick(ARCHES[B.arch].wt) : pick(PLAIN_TH);   // even idle walks stay in character
+  if(rnd()<0.2 && m && m.i>0.4){
+    const extra=pick(MOOD_TH[m.k]||PLAIN_TH);
+    if(extra!==t) t=t+" — "+extra;
+  }
+  return t;
+}
 // v2 names kept as thin wrappers — same call sites, new machinery
 function refreshGoal(a){
   const B=a.brain; if(!B) return;
@@ -826,6 +873,7 @@ function houseSpotScore(a,bx,by){
   }
   let waterD=99; for(let y=0;y<H;y+=2){ const cx=RIVER_X(y); waterD=Math.min(waterD, dist(bx,by,cx,y)); }
   if(a.likes.includes("fishing")) s += 8/Math.max(2,waterD);
+  if(planStepKind(a)==="riverHome") s += 30/Math.max(2,waterD);   // [brain v3] the aspiration shapes WHERE they build
   let treeD=99; for(const t of trees) if(t.alive) treeD=Math.min(treeD,dist(bx,by,t.x,t.y));
   s += a.traits.nature * 5/Math.max(1.5,treeD);
   s -= dist(bx,by,PLAZA.x,PLAZA.y)*0.08;                  // mild pull toward the plaza
@@ -1074,7 +1122,7 @@ function tryDiscover(a){
     chron(`Discovery! After many burnt attempts, ${a.name} worked out ${RECIPES[unknownBase.id].name}. For now, only ${a.name} knows the way of it.`, true);
     remember(a,`I discovered ${RECIPES[unknownBase.id].name}. Mine first.`);
     toast(`✶ ${a.name} discovered ${RECIPES[unknownBase.id].name}`);
-    a.needs.joy=1;
+    a.needs.joy=1; setMood(a,"inspired",0.7);
     return true;
   }
   // a variant of something they already know
@@ -1441,10 +1489,44 @@ function stepAlong(a, dt){
 function nearestTree(a){ let b=null,bd=1e9; for(const t of trees){ if(!t.alive) continue; const d=dist(a.x,a.y,t.x,t.y); if(d<bd){bd=d;b=t;} } return b; }
 function nearestBush(a){ let b=null,bd=1e9; for(const t of bushes){ if(!t.berries) continue; const d=dist(a.x,a.y,t.x,t.y); if(d<bd){bd=d;b=t;} } return b; }
 
+// [brain v3] chronotype: early risers turn in and rise early, night owls late.
+// Personal — the WORLD's isNight() stays untouched for lamps and light.
+const nightFor=a=>{ const c=(a.brain?.stance?.chrono??0.5)-0.5; const t=tod();
+  return t < 0.20+c*0.08 || t > 0.86+c*0.06; };
+/* [brain v3] the plan leans on the day without scripting it */
+function planBias(a){
+  const st=a.brain?.plan?.steps?.[a.brain.plan.i]; if(!st) return false;
+  const h=homeOf(a);
+  if(st.kind==="master"){
+    const like=a.likes.find(l=>skillDomainOf(l)===st.d)||a.likes[0];
+    a.thought="practice, practice — "+st.text;
+    let tx=(PLAZA.x|0)+ri(3)-1, ty=(PLAZA.y|0)+ri(3)-1;
+    if(like==="fishing"){ const y=clamp(Math.floor(a.y)+ri(17)-8,1,H-2); tx=RIVER_X(y)-2; ty=y; }
+    else if(h&&h.stage==="done"){ tx=h.doorX; ty=h.doorY; }
+    return goto(a,tx,ty,{type:"hobby",like,t:0});
+  }
+  if(st.kind==="farBank"){
+    const B=a.brain, un=[0,1,2,3].filter(q=>!((B.seen||0)&(1<<q)));
+    if(!un.length) return false;
+    const q=pick(un);
+    const tx=clamp(Math.round((q&1? W*0.75 : W*0.25))+ri(17)-8, 2, W-3);
+    const ty=clamp(Math.round((q&2? H*0.75 : H*0.25))+ri(17)-8, 2, H-3);
+    a.thought="off to see the "+["northwest","northeast","southwest","southeast"][q]+" reach at last";
+    return goto(a,tx,ty,{type:"idle"});
+  }
+  if(st.kind==="peace" && st.who!=null){
+    const w=byId(st.who);
+    if(w && w.alive && !w.inside && (!w.task||!w.task.locked)){
+      a.thought="going to mend things with "+w.name;
+      return goto(a,Math.floor(w.x),Math.floor(w.y),{type:"seek",who:w.id});
+    }
+  }
+  return false;
+}
 function chooseTask(a){
   const n=a.needs, h=homeOf(a);
-  // sleep
-  if((isNight()&&n.energy<.75) || n.energy<.18){
+  // sleep — on each villager's own clock
+  if((nightFor(a)&&n.energy<.75) || n.energy<.18){
     if(h && h.stage==="done"){ a.thought=`heading home to sleep`; return goto(a,h.doorX,h.doorY,{type:"sleep",home:true}); }
     a.thought=(a.brain&&rnd()<.4)?ARCHES[a.brain.arch].st:"dozing under the open sky"; a.task={type:"sleep",home:false,t:0}; return true; // [brain]
   }
@@ -1490,9 +1572,11 @@ function chooseTask(a){
   if(!h && isAdult(a)){
     if(startHouse(a)) return chooseTask(a);
   }
-  // communal effort — any industrious adult pitches in on the tavern/market site
+  // [brain v3] the life-plan leans on free time — needs above stay sovereign
+  if(isAdult(a) && a.brain && a.brain.plan && rnd()<0.15 && planBias(a)) return true;
+  // communal effort — the industrious AND the ambitious pitch in
   const cb=communalSite();
-  if(cb && isAdult(a) && a.traits.industry>.45 && rnd()<.6){
+  if(cb && isAdult(a) && (a.traits.industry*0.6+(a.brain?.stance?.ambition??0.5)*0.4)>.45 && rnd()<.6){
     if(a.carrying>0){ a.thought=`hauling timber to the ${cb.kind} site`; return goto(a,cb.doorX,cb.doorY,{type:"deliverComm",b:cb.id}); }
     if(cb.woodHave < cb.woodNeed){
       const t=nearestTree(a);
@@ -1500,7 +1584,7 @@ function chooseTask(a){
     } else { a.thought=`raising beams at the ${cb.kind}`; return goto(a,cb.doorX,cb.doorY,{type:"constructComm",b:cb.id}); }
   }
   // the age-works (§40): fountains and paving rise from hands, not from time
-  if(town.works && isAdult(a) && a.traits.industry>.4 && rnd()<.5){
+  if(town.works && isAdult(a) && (a.traits.industry*0.6+(a.brain?.stance?.ambition??0.5)*0.4)>.4 && rnd()<.5){
     const wp=[(PLAZA.x|0)-4+ri(2), (PLAZA.y|0)-1+ri(3)];   // the works yard, west of the square
     if(a.carrying>0){ a.thought=`hauling timber to the ${town.works.kind==="fountain"?"fountain works":"paving works"}`; return goto(a,wp[0],wp[1],{type:"deliverWorks"}); }
     if(town.works.woodHave < town.works.woodNeed){
@@ -1509,7 +1593,7 @@ function chooseTask(a){
     } else { a.thought=town.works.kind==="fountain"?"setting stones at the new fountain":"laying flagstones on the square"; return goto(a,wp[0],wp[1],{type:"constructWorks"}); }
   }
   // §11 appearanceInvestment: making oneself presentable costs real morning time
-  if((a.groom??0.5)<0.4 && tod()>0.2 && tod()<0.36 && rnd()<0.35){
+  if((a.groom??0.5)<0.4 && tod()>((a.brain?.stance?.chrono??0.5)<0.35?0.16:0.2) && tod()<0.36 && rnd()<0.35){
     const gs = (h&&h.stage==="done") ? [h.doorX,h.doorY]
              : [RIVER_X(Math.floor(a.y))-2, Math.floor(a.y)];
     a.thought="making myself presentable";
@@ -1522,7 +1606,8 @@ function chooseTask(a){
     return goto(a,h.doorX,h.doorY,{type:"experiment",t:0});
   }
   // passing knowledge on (§15): parents teach children, masters take apprentices
-  if(isAdult(a) && rnd()<0.1){
+  // — and villagers whose life-plan is TO teach seek pupils far more often
+  if(isAdult(a) && rnd()<(planStepKind(a)==="teach"?0.3:0.1)){
     let bestD=null,bl=0;
     for(const d in (a.skills||{})) if(a.skills[d]>0.5&&a.skills[d]>bl){ bl=a.skills[d]; bestD=d; }
     if(bestD){
@@ -1555,7 +1640,8 @@ function chooseTask(a){
   }
   // evenings at the tavern
   const tv=tavernHouse();
-  if(tv && tavernTime() && !festActive() && isAdult(a) && (a.traits.social>.4 || n.social<.6) && rnd()<.7){
+  if(tv && tavernTime() && !festActive() && isAdult(a) && (a.traits.social>.4 || n.social<.6)
+     && rnd()<.7*(1+((a.brain?.stance?.chrono??0.5)-0.5)*0.8)){
     a.thought=`heading to ${tv.name} for the evening`;
     return goto(a, tv.x+ri(4), tv.y+3, {type:"tavern", t:0});
   }
@@ -1571,12 +1657,14 @@ function chooseTask(a){
       return goto(a, sch.doorX, sch.doorY, {type:"teachClass", t:0});
     }
   }
-  // socialise
-  if(n.social<.55 && a.traits.social>rnd()*0.7){
+  // socialise — the lonely reach out sooner; a heart set on love looks differently
+  if(n.social<(moodWord(a)==="lonely"?.8:.55) && a.traits.social>rnd()*0.7){
     const others = agents.filter(o=>o!==a && o.alive && !o.inside && !o.task?.locked);
     if(others.length){
+      const seeking = planStepKind(a)==="love" && !a.partner;
       const target = others.reduce((best,o)=>{
-        const r=a.rel.get(o.id); const score=(r?r.aff:0) + rnd()*3 - dist(a.x,a.y,o.x,o.y)*0.06;
+        const r=a.rel.get(o.id);
+        const score=(seeking?attractionScore(a,o)*4:0) + (r?r.aff:0) + rnd()*3 - dist(a.x,a.y,o.x,o.y)*0.06;
         return (!best||score>best.s)?{o,s:score}:best; },null).o;
       a.thought=`going to find ${target.name}`;
       return goto(a, Math.floor(target.x), Math.floor(target.y), {type:"seek", who:target.id});
@@ -1600,14 +1688,10 @@ function chooseTask(a){
   }
   // wander / visit a friend's porch
   // [brain] wander thoughts take archetype colour half the time; sometimes the goal surfaces
-  const gw=a.brain&&a.brain.goal;
-  a.thought = (a.pregnant && rnd()<.3) ? "a hand on the bump — not long now"
-    : (gw && rnd()<.22) ? ((a.wealth||0)<2 ? "the coin pouch is nearly empty — and still: "+gw.text : "turning over a quiet hope — "+gw.text)
-    : (a.brain && rnd()<.5) ? pick(ARCHES[a.brain.arch].wt)
-    : pick(["taking a slow walk","following the worn path","seeing what the day brings","humming to no one"]);
-  // a stroll stays a stroll — wander NEAR where you already are; a wider
-  // valley must not mean hiking to its far corner to hum
-  const wx=clamp(Math.floor(a.x)+ri(19)-9, 2, W-3), wy=clamp(Math.floor(a.y)+ri(19)-9, 2, H-3);
+  a.thought = (a.pregnant && rnd()<.3) ? "a hand on the bump — not long now" : composeThought(a);
+  // a stroll stays a stroll — but wanderlust strolls FURTHER than rooted feet
+  const R = 9 + Math.round((1-(a.brain?.stance?.rooted??0.5))*10);
+  const wx=clamp(Math.floor(a.x)+ri(R*2+1)-R, 2, W-3), wy=clamp(Math.floor(a.y)+ri(R*2+1)-R, 2, H-3);
   return goto(a, wx, wy, {type:"idle"});
 }
 
@@ -1651,6 +1735,11 @@ function endChat(a){
       if(rnd()<.5) chron(`${b.name}'s habit — ${b.brain.quirk} — wore on ${a.name} today.`);
     }
   }
+  // [brain v3] mood colors every talk: the lonely warm fast, the grieving sour
+  for(const [x,y2] of [[a,b],[b,a]]){
+    const m=x.brain?.mood;
+    if(m && m.i>0.2) delta += (({content:.15,proud:.2,inspired:.2,lonely:.35,grieving:-.35,worried:-.15,restless:0})[m.k]??0)*m.i*0.5;
+  }
   const ra=rel(a,b.id), rb=rel(b,a.id);
   ra.aff=clamp(ra.aff+delta,-3,14); rb.aff=clamp(rb.aff+delta,-3,14);
   ra.chats++; rb.chats++;
@@ -1658,6 +1747,7 @@ function endChat(a){
   if(ra.chats===3 && ra.aff>1.5){
     chron(`${a.name} and ${b.name} have become friends — they keep finding each other on the paths.`);
     remember(a,`${b.name} and I became real friends.`); remember(b,`${a.name} and I became real friends.`);
+    setMood(a,"content",0.6); setMood(b,"content",0.6);
   }
   if(delta>1.2) { emote(a,"happy",2.5); emote(b,"happy",2.5); }
   else if(delta<-.6) { emote(a,"cloud",3); emote(b,"cloud",3); }
@@ -1669,9 +1759,21 @@ function endChat(a){
   // long history (affinity) and real compatibility. Festival evenings loosen hearts.
   const loveChance = (festActive() && tod()>0.6) ? .6 : .35;
   const attrA=attractionScore(a,b), attrB=attractionScore(b,a);
-  if(!a.partner && !b.partner && isAdult(a)&&isAdult(b)&&!isElder(a)&&!isElder(b)
+  const bothFree = !a.partner && !b.partner && isAdult(a)&&isAdult(b)&&!isElder(a)&&!isElder(b)
      && ra.aff>6 && rb.aff>6 && attrA>0.52 && attrB>0.52 && c>0.3
-     && rnd()<loveChance*clamp(attrA+attrB-0.6,0.1,1.2) && !a.parents.includes(b.id) && !b.parents.includes(a.id)){
+     && !a.parents.includes(b.id) && !b.parents.includes(a.id);
+  // [brain v3] some hearts genuinely keep their own company — and say so, once
+  if(bothFree && (a.brain?.stance?.wantsPartner===false || b.brain?.stance?.wantsPartner===false)){
+    if(!ra.turnedDown && rnd()<0.4){
+      ra.turnedDown=true; rb.turnedDown=true;
+      const no = a.brain?.stance?.wantsPartner===false ? a : b, yes = no===a ? b : a;
+      chron(`${no.name} let ${yes.name} down gently — some hearts keep their own company. They walked back as friends.`, true);
+      remember(no,`I told ${yes.name} the truth about myself: a hearth kept my own way.`);
+      remember(yes,`${no.name} turned me down, kindly. It still stung.`);
+      setMood(yes,"lonely",0.7); if(Math.random()<0.8) emote(yes,"broken",6);
+    }
+  } else if(bothFree
+     && rnd()<loveChance*clamp(attrA+attrB-0.6,0.1,1.2)){
     a.partner=b.id; b.partner=a.id;
     emote(a,"heart",5); emote(b,"heart",5);
     chron(`Under the ${isNight()?"stars":"open sky"}, ${a.name} and ${b.name} chose each other. Emberhollow has a new pair.`, true);
@@ -1702,6 +1804,7 @@ function endTeach(teacher){
   learner.needs.joy=clamp(learner.needs.joy+.15,0,1);
   remember(learner,`${teacher.name} taught me ${domain}.`);
   remember(teacher,`I taught ${learner.name} a little ${domain}.`);
+  if(teacher.brain) teacher.brain.taught=(teacher.brain.taught||0)+1;   // the teach aspiration counts real lessons
   const ra=rel(teacher,learner.id), rb=rel(learner,teacher.id);
   ra.aff=clamp(ra.aff+.4,-3,14); rb.aff=clamp(rb.aff+.6,-3,14);
   if(domain==="cooking"&&rnd()<0.6) shareRecipe(teacher,learner,"taught");
@@ -1750,7 +1853,8 @@ function updateAgent(a, dt){
   n.energy=clamp(n.energy - dt*0.008, 0, 1);
   n.food  =clamp(n.food   - dt*0.010*(a.pregnant?1.25:1), 0, 1);   // eating for two
   n.social=clamp(n.social - dt*0.0075*(0.4+a.traits.social), 0, 1);
-  n.joy   =clamp(n.joy    - dt*0.0065, 0, 1);
+  const mk=a.brain?.mood?.k;   // [brain v3] grief drains joy; contentment shields it (read-only here)
+  n.joy   =clamp(n.joy    - dt*0.0065*(mk==="grieving"?1.5:mk==="content"?0.8:mk==="proud"?0.7:1), 0, 1);
   a.groom=clamp((a.groom??0.5) - dt*0.0025, 0, 1);   // presentation fades without care (§11)
   if(a.say && simTime>a.say.until) a.say=null;
 
@@ -1948,7 +2052,7 @@ function updateAgent(a, dt){
         const o=agents.find(o=>o!==a && o.alive && o.task && o.task.type==="festival" && !o.task.locked && dist(a.x,a.y,o.x,o.y)<3);
         if(o){ startChat(a,o); break; }
       }
-      if(!festActive() || t.t>15+rnd()*10) a.task=null;
+      if(!festActive() || t.t>15+rnd()*10){ a.task=null; if(rnd()<0.3) setMood(a,"inspired",0.6); }
       break;
     }
     case "deliverComm": {
@@ -2185,20 +2289,51 @@ function slowPulse(){
   }
   // careers (§14): chosen at adulthood, reconsidered every ~10 days — never per tick
   for(const a of living){
+    // [brain v3] the inner life keeps time here, for EVERYONE (children too):
+    // quadrant memory for the wanderers, daily mood decay, hunger, loneliness
+    const B=a.brain;
+    if(B){
+      const qbit = 1 << ((a.x>W/2?1:0)+(a.y>H/2?2:0));
+      if(!((B.seen||0)&qbit)){ B.seen=(B.seen||0)|qbit; a.farAt=day(); }
+      const m=B.mood;
+      if(m && day()!==m.decAt){
+        m.decAt=day(); m.i=Math.max(0,m.i-0.12);
+        if(m.i<0.15){ m.k="content"; m.i=0.3; }
+      }
+      a.hungryStreak = (a.needs.food<0.25) ? (a.hungryStreak||0)+1 : 0;
+      if(a.hungryStreak>=3) setMood(a,"worried",0.6);
+      if(a.needs.social<0.3 && ![...a.rel.values()].some(r=>r.aff>1.5)) setMood(a,"lonely",0.5);
+      if(B.stance && (B.stance.rooted??0.5)<0.3 && day()-(a.farAt||0)>8) setMood(a,"restless",0.5);
+      if(m && Math.random()<0.10*m.i){   // mood shows on the face — cosmetic stream only
+        emote(a, ({grieving:"broken",lonely:"cloud",worried:"cloud",proud:"happy",inspired:"happy",content:"happy",restless:"talk"})[m.k]||"talk", 3);
+      }
+    }
     if(!isAdult(a)) continue;
+    // [brain v3] stances crystallize once, at adulthood — then the life-plan forms
+    if(B && B.stance && (!B.stance.set || !B.plan)){
+      const s=B.stance;
+      if(!s.set){
+        s.set=true;
+        s.wantsPartner = a.partner ? true : rnd() > (s.pPartnerPrior ?? 0.12);
+        s.wantsChildren = agents.some(o=>(o.parents||[]).includes(a.id)) ? true : rnd() > (s.pChildPrior ?? 0.18);
+        if(!s.wantsPartner && rnd()<0.4) chron(`${a.name} came of age sure of one thing: a hearth of their own, kept their own way.`);
+      }
+      makePlan(a);
+    }
     if(!a.career){ considerCareer(a); a.careerAt=day(); }
     else if(day()-(a.careerAt||0)>=10){ a.careerAt=day(); if(rnd()<0.35) considerCareer(a); }
     // daily body drift from yesterday's labor (§9) — gradual, never a flip
     if(day()-(a.bodyAt||0)>=1){ a.bodyAt=day(); driftBody(a, clamp((a.phys||0)/14,0,1)); a.phys=(a.phys||0)*0.25; }
-    // founding a business takes skill, savings, ambition, and a gap in the town (§21)
+    // founding a business takes skill, savings, AMBITION, and a gap in the town (§21)
+    const amb=B?.stance?.ambition ?? 0.5;
     if(a.career && !bizOf(a) && !a.worksFor && skillOf(a,a.career.domain)>0.6 && (a.wealth||0)>=12
-       && !businesses.some(b=>b.domain===a.career.domain) && rnd()<0.08) foundBusiness(a);
+       && !businesses.some(b=>b.domain===a.career.domain) && rnd()<0.03+amb*0.10) foundBusiness(a);
     // home improvement (§7): prosperity turns into better walls — via skill or a hired builder
     const hh=homeOf(a);
     const matBehind = hh && (hh.mat??1)<eraMat();       // the town's age has outrun this roof
     // two distinct projects: a full tier upgrade (expensive), or a plain
     // re-clad in the age's material (cheap, and it does NOT raise the tier)
-    const wantsTier = hh && (hh.tier||1)<3 && (a.wealth||0)>=(hh.tier||1)*10 && rnd()<0.04;
+    const wantsTier = hh && (hh.tier||1)<3 && (a.wealth||0)>=(hh.tier||1)*10 && rnd()<0.04 && amb>=0.3;   // the contented keep their cottage
     const wantsClad = hh && !wantsTier && matBehind && (a.wealth||0)>=5 && rnd()<0.06;
     if(hh && hh.stage==="done" && !hh.kind && !hh.upg && hh.owners[0]===a.id
        && (wantsTier || wantsClad)){
@@ -2248,7 +2383,29 @@ function slowPulse(){
       if(!a.partner || a.id>a.partner || a.pregnant) continue;
       const b=byId(a.partner); if(!b||!b.alive||b.pregnant) continue;
       const h=homeOf(a);
-      if(h && h.stage==="done" && h.id===b.home && rnd()<0.05){
+      if(!(h && h.stage==="done" && h.id===b.home)) continue;
+      // [brain v3] wanting children is a stance, not a default — and couples
+      // can disagree. That disagreement is real drama, aired exactly once.
+      const aNo=a.brain?.stance?.wantsChildren===false, bNo=b.brain?.stance?.wantsChildren===false;
+      if(aNo||bNo){
+        if((aNo!==bNo) && a.brain && b.brain && !a.brain.kidsTalk && rnd()<0.15){
+          a.brain.kidsTalk=true; b.brain.kidsTalk=true;
+          const no=aNo?a:b, yes=aNo?b:a;
+          chron(`${yes.name} wants children; ${no.name} does not. The cottage was quiet tonight — they'll love each other anyway, or they won't.`, true);
+          remember(yes,`${no.name} and I want different futures. It sits between us now.`);
+          remember(no,`I told ${yes.name} the truth: I don't want children. I won't pretend.`);
+          const ry=rel(yes,no.id), rn=rel(no,yes.id);
+          ry.aff=clamp(ry.aff-1,-3,14); rn.aff=clamp(rn.aff-1,-3,14);
+          setMood(no,"worried",0.5); setMood(yes,"lonely",0.6);
+        } else if(a.brain?.kidsTalk && rnd()<0.01){
+          const no=aNo?a:b;
+          no.brain.stance.wantsChildren=true;
+          chron(`${no.name} came around: a child, then. The lane will hear it by supper.`, true);
+          remember(no,"I changed my mind about children. Hearts do that.");
+        }
+        continue;
+      }
+      if(rnd()<0.05){
         a.pregnant={by:b.id, byName:b.name, due:day()+4+ri(3)};
         emote(a,"heart",5); emote(b,"heart",5);
         chron(`${a.name} and ${b.name} are expecting a child — the whole lane already knows.`, true);
@@ -2294,7 +2451,14 @@ function slowPulse(){
       if(h){ gx=h.x; gy=h.y+3; }
       const g=nearWalkable(gx,gy)||[gx,gy];
       if(inb(g[0],g[1])&&ground[K(g[0],g[1])]===G_GRASS){ ground[K(g[0],g[1])]=G_GRAVE; graves.push({x:g[0],y:g[1],name:a.name}); groundDirty=true; }
-      if(a.partner){ const p=byId(a.partner); if(p){ p.partner=null; emote(p,"broken",8); remember(p,`${a.name} passed on. The cottage is quieter now.`); } }
+      if(a.partner){ const p=byId(a.partner); if(p){ p.partner=null; emote(p,"broken",8); setMood(p,"grieving",1); remember(p,`${a.name} passed on. The cottage is quieter now.`); } }
+      // [brain v3] grief was never only the partner's: children, parents and
+      // close friends carry it too
+      for(const o of agents){
+        if(!o.alive || o===a) continue;
+        const close = (o.parents||[]).includes(a.id) || (a.parents||[]).includes(o.id) || ((o.rel.get(a.id)?.aff||0)>5);
+        if(close){ setMood(o,"grieving",0.8); remember(o,`${a.name} is gone. The paths feel emptier.`); }
+      }
       if(h) removeHouseClaim(h,a);   // clean the owner list; tear down an orphaned half-build
       // an heir can already own a business, so a person may die holding several — settle them ALL
       const heir=agents.find(o=>o!==a&&o.alive&&o.parents&&o.parents.includes(a.id)&&isAdult(o));
@@ -3314,11 +3478,11 @@ function renderInspector(){
         <div>
           <h2>${esc(a.name)}</h2>
           <p class="sub">${stageOf(a)} · ${ageOf(a)} days old${a.pregnant?` · expecting (due ~day ${a.pregnant.due})`:""}</p>
-          <div class="chips">${civic.leaderId===a.id?'<span class="chip warm">⚖ Speaker</span>':""}${a.brain?`<span class="chip warm">✦ ${esc(ARCHES[a.brain.arch].name)}</span>`:""}${topTraits(a).map(t=>`<span class="chip warm">${t}</span>`).join("")}${a.likes.map(l=>`<span class="chip">${LIKE_ICON[l]||""} ${l}</span>`).join("")}</div>
+          <div class="chips">${civic.leaderId===a.id?'<span class="chip warm">⚖ Speaker</span>':""}${a.brain?`<span class="chip warm">✦ ${esc(ARCHES[a.brain.arch].name)}</span>`:""}${moodWord(a)?`<span class="chip">☾ ${moodWord(a)}</span>`:""}${a.brain?.stance?.wantsPartner===false?'<span class="chip">hearth of their own</span>':""}${a.brain?.stance?.wantsChildren===false?'<span class="chip">no children, by choice</span>':""}${topTraits(a).map(t=>`<span class="chip warm">${t}</span>`).join("")}${a.likes.map(l=>`<span class="chip">${LIKE_ICON[l]||""} ${l}</span>`).join("")}</div>
         </div>
       </div>
       ${a.brain?`<p class="kv" style="margin:6px 0 0">${esc(a.brain.backstory)}</p><p class="kv" style="font-style:italic;color:var(--faint);margin:2px 0 0">the neighbours have noticed: ${esc(a.brain.quirk.split(" ").slice(0,3).join(" "))}…</p>`:""}
-      ${a.brain&&a.brain.goal?`<p class="thought" style="color:var(--brass);margin:6px 0 0">dreams of: ${esc(a.brain.goal.text)}</p>`:""}
+      ${a.brain&&a.brain.goal?`<p class="thought" style="color:var(--brass);margin:6px 0 0">now: ${esc(a.brain.goal.text)}${(()=>{const P=a.brain.plan; if(!P) return ""; const nx=P.steps[P.i+1]; return nx?` · then: ${esc(nx.text)}`:"";})()}</p>`:""}
       <p class="thought" id="thought"></p>
       <div class="bars" id="needbars"></div>
       <div class="secl">Craft</div>
@@ -3604,7 +3768,7 @@ function openFamilyTree(){
 
 /* ============================== persistence (§36: versioned saves) ============================== */
 const SAVE_KEY="emberhollow-save";
-const SAVE_V=7;
+const SAVE_V=8;
 const AGENT_FIELDS=["id","name","hue","skin","hair","x","y","home","carrying","partner","parents",
   "birthDay","lifespan","memories","thought","likes","traits","needs","brain","chatTurns",
   "skills","wealth","knows","career","careerAt","body","phys","groom","wardrobe","bodyAt","worksFor","pregnant","sprite"];
@@ -3713,6 +3877,26 @@ function migrateSave(d){
       s.sprite ??= { adult:NA_ADULTS[s.id%NA_ADULTS.length], elder:NA_ELDERS[s.id%NA_ELDERS.length] };
     d.v=7;
   }
+  if(d.v===7){
+    // v8: the inner life (stances, moods, life-plans) — derived DETERMINISTICALLY
+    // per agent (local LCG keyed by id; loading consumes zero stream numbers)
+    for(const s of d.agents){
+      const B=s.brain; if(!B) continue;
+      let sd=(s.id*2654435761)|0;
+      const lr=()=>{ sd=(Math.imul(sd,1664525)+1013904223)|0; return ((sd>>>8)&0xffff)/0x10000; };
+      const t=s.traits||{};
+      B.stance ??= { set:true,
+        wantsPartner: s.partner!=null ? true : lr()>0.12,
+        wantsChildren: d.agents.some(o=>(o.parents||[]).includes(s.id)) ? true : lr()>0.18,
+        rooted: clamp(0.5+((t.tidy??0.5)-0.5)*0.5-((t.openness??0.5)-0.5)*0.6+(lr()-0.5)*0.3,0,1),
+        ambition: clamp((t.industry??0.5)*0.55+0.2+(lr()-0.5)*0.3,0,1),
+        chrono: lr(), pPartnerPrior:0.12, pChildPrior:0.18 };
+      B.mood ??= {k:"content", i:0.3, at:0, decAt:0};
+      B.seen ??= 0; B.taught ??= 0; B.kidsTalk ??= false;
+      B.plan ??= null;   // makePlan runs in sim flow on the first slowPulse
+    }
+    d.v=8;
+  }
   if(d.v===SAVE_V) return d;
   throw new Error("save version "+d.v+" is newer than this build");
 }
@@ -3815,6 +3999,7 @@ window.__eh={
   get civic(){return civic;}, get tech(){return tech;}, get townBook(){return townBook;},
   get town(){return town;}, finishWorks:()=>{ if(town.works) finishWorks(null); },
   get artReady(){return artReady;},
+  composeThought:a=>composeThought(a), setMood:(a,k,i)=>setMood(a,k,i),
   get ai(){ return aiBackend ? {kind:aiBackend.kind, name:aiBackend.name} : null; },
   askAi:(q,o)=> aiBackend ? aiBackend.ask(q,o) : Promise.reject({code:"none"}),
   day, tod, setSpeed(s){ speed=s; },
@@ -3934,12 +4119,35 @@ function personaPrompt(a){
     .map(([d,v])=>`${d} (${v>0.8?"a true master":v>0.5?"skilled":v>0.25?"learning":"a novice"})`).join(", ");
   const dishes=(a.knows||[]).map(id=>RECIPES[id]?.name).filter(Boolean).slice(0,3).join(", ");
   let drawn=null,dv=0.58;
-  if(!a.partner&&isAdult(a)&&!isElder(a)) for(const [id] of a.rel){ const o=byId(id); if(o&&!o.partner&&o!==a){ const v=attractionScore(a,o); if(v>dv){dv=v;drawn=o;} } }
+  if(!a.partner&&isAdult(a)&&!isElder(a)&&a.brain?.stance?.wantsPartner!==false)
+    for(const [id] of a.rel){ const o=byId(id); if(o&&!o.partner&&o!==a){ const v=attractionScore(a,o); if(v>dv){dv=v;drawn=o;} } }
+  // [brain v3] stances, mood and the life-plan chain speak in interviews
+  const S=B&&B.stance, M=B&&B.mood;
+  let stanceTxt="";
+  if(S&&S.set){
+    if(S.wantsPartner===false) stanceTxt+="You never wanted a partner — a hearth kept your own way. You are at peace with it; say so plainly if asked, without apology. ";
+    if(S.wantsChildren===false) stanceTxt+="You do not want children and never have; if asked, say it simply — it is not a wound. ";
+    if(B.kidsTalk && a.partner) stanceTxt+=`You and ${byId(a.partner)?.name||"your partner"} want different futures on this — it sits quietly between you. `;
+    if(S.rooted<0.3) stanceTxt+="Wanderlust lives in you; you measure the town against the horizon. ";
+    else if(S.rooted>0.75) stanceTxt+="You are rooted here to the bone; leaving is other people's business. ";
+    if(S.ambition>0.75) stanceTxt+="You are quietly ambitious and it shows. ";
+    else if(S.ambition<0.25) stanceTxt+="You want nothing more than what you have — contentment is your one luxury. ";
+    if(S.chrono<0.3) stanceTxt+="You are a dawn person. ";
+    else if(S.chrono>0.7) stanceTxt+="You are a night owl. ";
+  }
+  const moodTxt = (M&&M.i>0.35) ? `These days a mood of ${M.k} sits on you (${M.i>0.7?"heavily":"lightly"}): let it color your tone and word choice, not your topics. ` : "";
+  let planTxt="";
+  if(B&&B.plan){
+    const P=B.plan;
+    const doneS=P.steps.filter(s=>s.done).map(s=>s.text+" (done)");
+    const cur=P.steps[P.i], later=P.steps.slice(P.i+1).map(s=>s.text);
+    planTxt=`The shape of your life so far: ${doneS.length?doneS.join(", ")+" → ":""}NOW: ${cur?cur.text:"living gently"}${later.length?` → someday: ${later.join(", ")}`:""}. This chain is your own private map; mention at most one step unless pressed. `;
+  }
   return `You are roleplaying ${a.name}, a villager in Emberhollow, a small self-running town beside a river. Stay in character; first person; 1–3 short sentences per reply; never mention being an AI or a simulation.
 ${A?`You are ${A.name} of this town — ${A.essence}.`:""} ${B?`Your story: ${B.backstory}`:""}
 How you speak — obey these strictly: ${B?B.voice.join("; "):"warm, a little rustic"}.
 You are a ${stageOf(a)}, ${ageOf(a)} days old; ${topTraits(a).join(" and ")}; you love ${a.likes.join(", ")}.${B?` You hold dear: ${B.values.join(" and ")}. A private fear (only mention if it truly fits): ${B.fear}. A habit of yours: ${B.quirk}.`:""}
-${B&&B.goal?`Your current hope: ${B.goal.text}.`:""} You are ${wealthWord(a)}${a.career?`, working as a ${a.career.job}`:""}${(()=>{const bz=bizOf(a); if(bz) return `, and you run ${bz.name}`; const w=businesses.find(x=>x.id===a.worksFor); return w?`, employed at ${w.name}`:"";})()}. In body you are ${buildWord(a)}, ${groomWord(a)}.${skl?` Your craft: ${skl}.`:""}${dishes?` Dishes you know the way of: ${dishes}.`:""}
+${stanceTxt}${moodTxt}${planTxt}You are ${wealthWord(a)}${a.career?`, working as a ${a.career.job}`:""}${(()=>{const bz=bizOf(a); if(bz) return `, and you run ${bz.name}`; const w=businesses.find(x=>x.id===a.worksFor); return w?`, employed at ${w.name}`:"";})()}. In body you are ${buildWord(a)}, ${groomWord(a)}.${skl?` Your craft: ${skl}.`:""}${dishes?` Dishes you know the way of: ${dishes}.`:""}
 ${civic.leaderId===a.id?`The town elected you its Speaker on day ${civic.electedDay}. Laws under your name: ${civic.laws.map(l=>`“${l.text}”`).join(" ")||"none yet"}. You carry that weight in how you speak. `:""}${tech.writing&&tech.writerName===a.name?"You are the one who invented writing here; you are quietly proud of the Town Book. ":""}
 ${B?`You have a secret: ${B.secret} — you NEVER volunteer it; deflect gently unless this person has clearly earned deep trust across the conversation.`:""}
 Home: ${h ? (h.stage==="done"?"your finished cottage "+describeSpot(h.x,h.y):"a half-built cottage you're still raising") : "none yet; you sleep under the stars"}.
