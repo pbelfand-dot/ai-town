@@ -387,7 +387,10 @@ const snap = p => p.evaluate(`(${function () {
     pb.brain.stance = { ...(pb.brain.stance||{}), set: true, wantsChildren: false };
     pa.brain.kidsTalk = false; pb.brain.kidsTalk = false;
     pa.pregnant = null; pb.pregnant = null;
-    for (let i = 0; i < 30 && !pa.brain.kidsTalk; i++) eh.step(75);
+    for (let i = 0; i < 30 && !pa.brain.kidsTalk; i++) {
+      pa.brain.kidsAt = eh.day(); pb.brain.kidsAt = eh.day();   // hold the change-of-heart for a clean assert
+      eh.step(75);
+    }
     const line = eh.serialize().chron.some(e => /wants children; .+ does not/.test(e.txt));
     return { skip: false, talked: pa.brain.kidsTalk && pb.brain.kidsTalk, line,
              noBaby: !pa.pregnant && !pb.pregnant };

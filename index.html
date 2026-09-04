@@ -659,12 +659,19 @@ function advancePlan(a){
   if(!B.plan){ if(B.stance&&B.stance.set) makePlan(a); return; }
   const P=B.plan, st=P.steps[P.i];
   if(!st){ P.i=P.steps.length-1; B.goal=P.steps[P.i]; return; }
-  // impossible steps are grieved and released, never silently rerolled
+  // impossible steps are grieved and RELEASED (removed — the rest of the
+  // chain stays reachable); if the hope actually came true first, credit it
   if((st.kind==="love"&&isElder(a)) || (st.kind==="peace"&&st.who!=null&&!byId(st.who))
      || (st.kind==="family"&&isElder(a))){
-    st.kind="live"; st.text="some hopes stay hopes — and the days are still good";
-    setMood(a, st.kind==="peace"?"grieving":"restless", 0.6);
-    remember(a,"I let an old hope go, gently.");
+    if(!planStepDone(a,st)){
+      const was=st.kind;
+      P.steps.splice(P.i,1);
+      if(P.i>=P.steps.length) P.i=P.steps.length-1;
+      B.goal=P.steps[P.i];
+      setMood(a, was==="peace"?"grieving":"restless", 0.6);
+      remember(a,"I let an old hope go, gently.");
+      return;
+    }
   }
   if(st.kind!=="live" && planStepDone(a,st)){
     st.done=true;
@@ -1458,6 +1465,7 @@ function say(a, txt, dur=3.2){ a.say={txt, until: simTime + dur}; }
 function goto(a, tx, ty, then){
   const p = astar(Math.floor(a.x), Math.floor(a.y), tx, ty);
   if(p===null){ a.task=null; return false; }
+  if(p.length>25) a.farAt=day();          // a long trek scratches the wanderlust itch
   a.path=p; a.task={type:"goto", then}; return true;
 }
 function stepAlong(a, dt){
@@ -1763,8 +1771,10 @@ function endChat(a){
      && ra.aff>6 && rb.aff>6 && attrA>0.52 && attrB>0.52 && c>0.3
      && !a.parents.includes(b.id) && !b.parents.includes(a.id);
   // [brain v3] some hearts genuinely keep their own company — and say so, once
-  if(bothFree && (a.brain?.stance?.wantsPartner===false || b.brain?.stance?.wantsPartner===false)){
-    if(!ra.turnedDown && rnd()<0.4){
+  // (drama only when exactly ONE refuses; two solitary hearts just stay friends)
+  const aWPno=a.brain?.stance?.wantsPartner===false, bWPno=b.brain?.stance?.wantsPartner===false;
+  if(bothFree && (aWPno||bWPno)){
+    if(aWPno!==bWPno && !ra.turnedDown && rnd()<0.4){
       ra.turnedDown=true; rb.turnedDown=true;
       const no = a.brain?.stance?.wantsPartner===false ? a : b, yes = no===a ? b : a;
       chron(`${no.name} let ${yes.name} down gently — some hearts keep their own company. They walked back as friends.`, true);
@@ -1775,6 +1785,8 @@ function endChat(a){
   } else if(bothFree
      && rnd()<loveChance*clamp(attrA+attrB-0.6,0.1,1.2)){
     a.partner=b.id; b.partner=a.id;
+    if(a.brain){ a.brain.kidsTalk=false; a.brain.kidsAt=0; }   // a NEW couple starts its own conversation
+    if(b.brain){ b.brain.kidsTalk=false; b.brain.kidsAt=0; }
     emote(a,"heart",5); emote(b,"heart",5);
     chron(`Under the ${isNight()?"stars":"open sky"}, ${a.name} and ${b.name} chose each other. Emberhollow has a new pair.`, true);
     remember(a,`${b.name} and I promised ourselves to each other.`);
@@ -2397,11 +2409,15 @@ function slowPulse(){
           const ry=rel(yes,no.id), rn=rel(no,yes.id);
           ry.aff=clamp(ry.aff-1,-3,14); rn.aff=clamp(rn.aff-1,-3,14);
           setMood(no,"worried",0.5); setMood(yes,"lonely",0.6);
-        } else if(a.brain?.kidsTalk && rnd()<0.01){
-          const no=aNo?a:b;
-          no.brain.stance.wantsChildren=true;
-          chron(`${no.name} came around: a child, then. The lane will hear it by supper.`, true);
-          remember(no,"I changed my mind about children. Hearts do that.");
+        } else if(a.brain?.kidsTalk && (aNo!==bNo) && day()!==(a.brain.kidsAt??-1)){
+          // a change of heart is RARE — weighed once a day, not 25 times
+          a.brain.kidsAt=day();
+          if(rnd()<0.03){
+            const no=aNo?a:b;
+            no.brain.stance.wantsChildren=true;
+            chron(`${no.name} came around: a child, then. The lane will hear it by supper.`, true);
+            remember(no,"I changed my mind about children. Hearts do that.");
+          }
         }
         continue;
       }
@@ -2451,7 +2467,9 @@ function slowPulse(){
       if(h){ gx=h.x; gy=h.y+3; }
       const g=nearWalkable(gx,gy)||[gx,gy];
       if(inb(g[0],g[1])&&ground[K(g[0],g[1])]===G_GRASS){ ground[K(g[0],g[1])]=G_GRAVE; graves.push({x:g[0],y:g[1],name:a.name}); groundDirty=true; }
-      if(a.partner){ const p=byId(a.partner); if(p){ p.partner=null; emote(p,"broken",8); setMood(p,"grieving",1); remember(p,`${a.name} passed on. The cottage is quieter now.`); } }
+      if(a.partner){ const p=byId(a.partner); if(p){ p.partner=null; emote(p,"broken",8); setMood(p,"grieving",1);
+        if(p.brain){ p.brain.kidsTalk=false; p.brain.kidsAt=0; }   // that conversation died with the marriage
+        remember(p,`${a.name} passed on. The cottage is quieter now.`); } }
       // [brain v3] grief was never only the partner's: children, parents and
       // close friends carry it too
       for(const o of agents){
@@ -3771,7 +3789,7 @@ const SAVE_KEY="emberhollow-save";
 const SAVE_V=8;
 const AGENT_FIELDS=["id","name","hue","skin","hair","x","y","home","carrying","partner","parents",
   "birthDay","lifespan","memories","thought","likes","traits","needs","brain","chatTurns",
-  "skills","wealth","knows","career","careerAt","body","phys","groom","wardrobe","bodyAt","worksFor","pregnant","sprite"];
+  "skills","wealth","knows","career","careerAt","body","phys","groom","wardrobe","bodyAt","worksFor","pregnant","sprite","farAt","hungryStreak"];
 function serializeGame(){
   return {
     v:SAVE_V, savedAt:Date.now(), simTime, nextId, nextHouse, nextBiz,
@@ -3887,7 +3905,7 @@ function migrateSave(d){
       const t=s.traits||{};
       B.stance ??= { set:true,
         wantsPartner: s.partner!=null ? true : lr()>0.12,
-        wantsChildren: d.agents.some(o=>(o.parents||[]).includes(s.id)) ? true : lr()>0.18,
+        wantsChildren: (d.agents.some(o=>(o.parents||[]).includes(s.id)) || (d.lineage||[]).some(l=>(l.parents||[]).includes(s.id))) ? true : lr()>0.18,
         rooted: clamp(0.5+((t.tidy??0.5)-0.5)*0.5-((t.openness??0.5)-0.5)*0.6+(lr()-0.5)*0.3,0,1),
         ambition: clamp((t.industry??0.5)*0.55+0.2+(lr()-0.5)*0.3,0,1),
         chrono: lr(), pPartnerPrior:0.12, pChildPrior:0.18 };
@@ -4127,7 +4145,8 @@ function personaPrompt(a){
   if(S&&S.set){
     if(S.wantsPartner===false) stanceTxt+="You never wanted a partner — a hearth kept your own way. You are at peace with it; say so plainly if asked, without apology. ";
     if(S.wantsChildren===false) stanceTxt+="You do not want children and never have; if asked, say it simply — it is not a wound. ";
-    if(B.kidsTalk && a.partner) stanceTxt+=`You and ${byId(a.partner)?.name||"your partner"} want different futures on this — it sits quietly between you. `;
+    if(B.kidsTalk && a.partner && (S.wantsChildren===false)!==(byId(a.partner)?.brain?.stance?.wantsChildren===false))
+      stanceTxt+=`You and ${byId(a.partner)?.name||"your partner"} want different futures on this — it sits quietly between you. `;
     if(S.rooted<0.3) stanceTxt+="Wanderlust lives in you; you measure the town against the horizon. ";
     else if(S.rooted>0.75) stanceTxt+="You are rooted here to the bone; leaving is other people's business. ";
     if(S.ambition>0.75) stanceTxt+="You are quietly ambitious and it shows. ";
